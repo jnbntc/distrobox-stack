@@ -1,0 +1,9 @@
+FROM registry.fedoraproject.org/fedora-toolbox:latest
+
+RUN dnf install -y \
+    clinfo intel-compute-runtime libva-intel-media-driver \
+    python3 pip zstd \
+    oneapi-level-zero oneapi-level-zero-devel \
+    ocl-icd ocl-icd-devel && \
+    dnf clean all && \
+    rm -rf /var/cache/dnf

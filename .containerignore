@@ -1,0 +1,14 @@
+# Archivos temporales y volcados de diagnóstico
+*_dump.md
+*.log
+*.tmp
+*.swp
+*~
+
+# Directorios de runtime y datos locales
+data/
+config/
+
+# Variables de entorno y secretos
+.env
+*.secret

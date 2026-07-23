@@ -1,0 +1,7 @@
+FROM registry.fedoraproject.org/fedora-toolbox:latest
+
+RUN dnf install -y \
+    intel-compute-runtime libva-intel-media-driver clinfo \
+    gimp inkscape krita darktable ImageMagick && \
+    dnf clean all && \
+    rm -rf /var/cache/dnf
