@@ -1,0 +1,64 @@
+name: OCI Build & Publish to GHCR
+
+on:
+  schedule:
+    # Compilación desatendida de mantenimiento todos los lunes a las 03:00 UTC
+    - cron: '0 3 * * 1'
+  push:
+    branches: [ "main", "master" ]
+    paths:
+      - 'dockerfiles/**'
+      - '.github/workflows/ghcr-publish.yml'
+  workflow_dispatch: # Permite disparar la compilación manual desde la web
+
+env:
+  REGISTRY: ghcr.io
+  # Convierte el nombre del repo a minúsculas automáticamente
+  IMAGE_NAME: ${{ github.repository_owner }}
+
+jobs:
+  build-and-push:
+    name: Build & Publish OCI Images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # Requerido para empujar a ghcr.io
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: net-ops
+            context: rootful
+          - image: pwsh-admin
+            context: rootless
+          - image: iot-dev
+            context: rootless
+          - image: ia-dev
+            context: rootless
+          - image: media-ops
+            context: rootless
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: redhat-actions/podman-login@v1
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build OCI Image (${{ matrix.image }})
+        run: |
+          podman build \
+            --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.image }}:latest \
+            --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.image }}:${{ github.sha }} \
+            --file dockerfiles/Containerfile.${{ matrix.image }} \
+            dockerfiles/
+
+      - name: Push to GHCR
+        run: |
+          podman push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.image }}:latest
+          podman push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.image }}:${{ github.sha }}
