@@ -11,7 +11,6 @@ build() {
     for img in "${ROOTLESS_IMAGES[@]}"; do
         echo "=== [BUILD USER] Construyendo ${REGISTRY}/${img}:latest ==="
         podman build -t "${REGISTRY}/${img}:latest" -f "dockerfiles/Containerfile.${img}" dockerfiles/
-    </Elicitation>
     done
 
     # 2. Compilar entornos de red/auditoría directamente en el storage rootful (/var/mnt/storage/podman-rootful/...)
