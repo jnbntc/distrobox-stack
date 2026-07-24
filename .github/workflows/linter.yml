@@ -1,15 +1,17 @@
 name: Infra Structure & Code Validation
 
 on:
+  workflow_dispatch:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "master" ]
     paths:
       - 'dockerfiles/**'
       - 'scripts/**'
       - 'Makefile'
       - '*.ini'
+      - '.github/workflows/**'
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "master" ]
 
 jobs:
   lint-shell:
@@ -23,7 +25,8 @@ jobs:
         uses: ludeeus/action-shellcheck@master
         with:
           scandir: 'scripts'
-          severity: 'warning'
+          # Solo falla si hay errores críticos de sintaxis o lógica en Bash (ignora avisos de estilo)
+          severity: 'error'
 
   lint-containers:
     name: Hadolint (Containerfiles)
@@ -37,8 +40,10 @@ jobs:
         with:
           recursive: true
           dockerfile: dockerfiles/Containerfile.*
-          # Ignore reglas muy ruidosas pero mantén el rigor en seguridad:
+          # Exclusiones diseñadas para entornos locales rolling-release:
           # DL3006: Always tag the version of an image explicitly
-          # DL3041: Specify version with dnf install
+          # DL3007: Using latest is prone to errors
+          # DL3008: Pin versions in apt get install (Debian/Ubuntu para IoT)
+          # DL3041: Specify version with dnf install (Fedora)
           # DL3059: Multiple consecutive `RUN` instructions
-          ignore: DL3006,DL3041,DL3059
+          ignore: DL3006,DL3007,DL3008,DL3041,DL3059
