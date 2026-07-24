@@ -1,0 +1,44 @@
+name: Infra Structure & Code Validation
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'dockerfiles/**'
+      - 'scripts/**'
+      - 'Makefile'
+      - '*.ini'
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  lint-shell:
+    name: ShellCheck (Bash Scripts)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Run ShellCheck on scripts
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: 'scripts'
+          severity: 'warning'
+
+  lint-containers:
+    name: Hadolint (Containerfiles)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Run Hadolint against Containerfiles
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          recursive: true
+          dockerfile: dockerfiles/Containerfile.*
+          # Ignore reglas muy ruidosas pero mantén el rigor en seguridad:
+          # DL3006: Always tag the version of an image explicitly
+          # DL3041: Specify version with dnf install
+          # DL3059: Multiple consecutive `RUN` instructions
+          ignore: DL3006,DL3041,DL3059
