@@ -27,3 +27,4 @@ recreate: build
 # 4. Limpiar caché de imágenes locales antiguas
 clean-images:
 	podman rmi -f $$(podman images -q $(REGISTRY)/*) 2>/dev/null || true
+
