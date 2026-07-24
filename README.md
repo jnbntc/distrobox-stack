@@ -2,7 +2,7 @@
 
 Stack de infraestructura como código (IaC) para la orquestación declarativa de entornos de trabajo especializados y descartables sobre **Fedora Atomic** (Silverblue / Kinoite / Sway Atomic). 
 
-El proyecto apalanca **Podman** (Driver OverlayFS) y **Distrobox** para aislar herramientas de red, desarrollo IoT, inteligencia artificial, scripting y multimedia del host inmutable, redirigiendo el 100% de la capa de almacenamiento (GraphRoot) hacia un disco NVMe secundario dedicado con endurecimiento estricto de **SELinux**.
+El proyecto apalanca **Podman** (Driver OverlayFS), **Distrobox** y **GitHub Container Registry (GHCR)** para aislar herramientas de red, desarrollo IoT, inteligencia artificial, scripting y multimedia del host inmutable, redirigiendo el 100% de la capa de almacenamiento hacia un disco NVMe secundario dedicado con endurecimiento estricto de **SELinux**.
 
 ---
 
@@ -12,85 +12,56 @@ Para evitar el desgaste y la saturación del sistema de archivos principal (`/va
 
 ```text
 /var/mnt/storage/
-├── podman-rootful/          <-- GraphRoot (sudo podman) | SELinux: container_var_lib_t
-│   └── storage/overlay/     # Capas e imágenes de net-ops (Rootful)
-└── podman-rootless/         <-- GraphRoot (user podman) | SELinux: container_var_lib_t
-    └── $USER/storage/       # Capas e imágenes rootless (ia-dev, iot-dev, media-ops, pwsh)
+├── podman-rootful/                          <-- GraphRoot (sudo podman) | SELinux: container_var_lib_t
+│   └── storage/overlay/                     # Capas e imágenes rootful (net-ops)
+└── podman-rootless/                         <-- GraphRoot (user podman) | SELinux: container_var_lib_t
+    └── $USER/
+        └── storage/                         # Capas rootless (ia-dev, iot-dev, media-ops, pwsh-admin)
+            └── volumes/                     # Volúmenes persistentes mapeados al namespace del usuario
 ```
 
 ### Configuración del Driver (`storage.conf`)
-Ambos demonios (Rootful en `/etc/containers/storage.conf` y Rootless en `~/.config/containers/storage.conf`) operan bajo el siguiente estándar de optimización I/O:
+Ambos demonios (`/etc/containers/storage.conf` y `~/.config/containers/storage.conf`) operan bajo el siguiente estándar de optimización I/O:
 
 ```ini
 [storage]
 driver = "overlay"
-# RunRoot apunta a tmpfs (/var/run o /run/user/$UID) para evitar cuellos de botella en disco
 graphroot = "/var/mnt/storage/podman-[rootful|rootless]/[$USER/]storage"
 
 [storage.options.overlay]
 mountopt = "nodev,metacopy=on" # metacopy=on acelera I/O evitando duplicar metadata entre capas
 ```
 
-> **Nota de Seguridad (SELinux):** Todo el árbol de `/var/mnt/storage/podman-*` debe mantener el contexto `container_var_lib_t` (`chcon -R -t container_var_lib_t /ruta`) para permitir la escritura nativa del motor OCI y el reetiquetado dinámico de volúmenes (`:z` / `:Z`) sin bloqueos del kernel en hosts Atomic.
+> **Nota de Seguridad (SELinux):** Todo el árbol de `/var/mnt/storage/podman-*` mantiene el contexto `container_var_lib_t` (`chcon -R -t container_var_lib_t /var/mnt/storage/podman-*`) para permitir la escritura nativa del motor OCI y el reetiquetado dinámico de volúmenes (`:z` / `:Z`) sin bloqueos del kernel.
 
 ---
 
-## 📦 Catálogo de Entornos (Manifiestos OCI)
+## 📦 Catálogo de Entornos OCI (Zero-Bloat)
 
-Las imágenes se compilan localmente desde la carpeta `dockerfiles/` optimizando las dependencias nativas (`dnf`/`apt`) mediante políticas *Zero-Bloat* (sin documentación, sin recomendaciones débiles como TeX Live/LaTeX).
+Las imágenes se compilan de forma automatizada mediante políticas *Zero-Bloat* (sin documentación, sin recomendaciones débiles de paquetería como TeX Live/LaTeX).
 
 | Contenedor | Contexto | Red / HW | Descripción & Stack Principal |
 | :--- | :--- | :--- | :--- |
 | **`net-ops`** | **Rootful** (`root=true`) | `host` / Sockets Raw | Auditoría L2/L3, troubleshooting y telemetría. Capas de kernel habilitadas: `NET_ADMIN`, `NET_RAW`, `NET_BIND_SERVICE`. <br>• **Stack:** `nmap`, `wireshark-cli`, `tcpdump`, `lldpd`, `ethtool`, `scapy`, `iperf3`, `bmon`, `net-snmp-utils`, `mosquitto`. |
-| **`pwsh-admin`** | **Rootless** | Bridge genérico | Automatización, scripting de administración y gestión de infraestructura SysAdmin sobre PowerShell / Python3. |
-| **`iot-dev`** | **Rootless** | USB Bus Mapped | Programación y flasheo de microcontroladores (ESP32-S3, Arduino, ARM). <br>• **HW Mapping:** Montaje dinámico del bus (`--device /dev/bus/usb:/dev/bus/usb:rwm`) + `--group-add keep-groups` para **Hot-Plugging** serial real (evita caídas de recreación si la placa no está conectada). |
-| **`ia-dev`** | **Rootless** | GPU / DRI Mapped | Desarrollo e inferencia local de IA, LLMs y Agentes. Soporte preparado para mapeo de aceleración por hardware (`/dev/dri`). |
+| **`pwsh-admin`** | **Rootless** | Bridge genérico | Automatización, scripting SysAdmin y gestión de infraestructura sobre PowerShell 7 / Python 3. |
+| **`iot-dev`** | **Rootless** | USB Bus Mapped | Programación y flasheo de microcontroladores (ESP32-S3, Arduino, ARM). <br>• **HW Mapping:** Montaje dinámico del bus (`--device /dev/bus/usb:/dev/bus/usb:rwm`) + `--group-add keep-groups` para **Hot-Plugging serial real**. |
+| **`ia-dev`** | **Rootless** | GPU / DRI Mapped | Inferencia local, desarrollo de agentes y automatización LLM. Mapeo directo de aceleración por hardware (`/dev/dri`). |
 | **`media-ops`** | **Rootless** | Bridge genérico | Operaciones, transcodificación y procesamiento de streams multimedia en espacio de usuario. |
 
 ---
 
-## 📂 Estructura del Repositorio
+## 🚀 CI/CD & Compilación en Nube (GHCR)
 
-```text
-.
-├── .github/workflows/
-│   └── linter.yml          # Pipeline CI/CD: Hadolint (OCI) + ShellCheck (Bash)
-├── dockerfiles/            # Manifiestos inmutables de construcción (Containerfiles)
-│   ├── Containerfile.ia-dev
-│   ├── Containerfile.iot-dev
-│   ├── Containerfile.media-ops
-│   ├── Containerfile.net-ops
-│   └── Containerfile.pwsh-admin
-├── scripts/
-│   └── stack.sh            # Motor de automatización y ciclo de vida de contenedores
-├── distrobox.ini           # Especificación declarativa de ensamblado (Distrobox Assemble)
-├── Makefile                # Wrappers de ejecución para orquestación rápida
-├── .containerignore        # Exclusiones de build context (Zero-layer busting)
-└── .gitignore
-```
+La construcción de imágenes se delega a GitHub Actions (`.github/workflows/ghcr-publish.yml`), ejecutándose en cada *push* a la rama principal y programada semanalmente vía cron (`0 3 * * 1`). Las imágenes resultantes se almacenan en el **GitHub Container Registry**:
 
----
-
-## 🚀 Gestión Operativa (`stack.sh`)
-
-La administración del ciclo de vida se centraliza en `scripts/stack.sh` (o mediante sus targets en el `Makefile`). El script gestiona de forma transparente la separación de privilegios al compilar (`sudo podman` vs `podman`) para poblar los almacenes de almacenamiento respectivos.
-
-```bash
-# 1. Compilar el stack de imágenes OCI localmente (Rootful + Rootless)
-./scripts/stack.sh build
-
-# 2. Desplegar o actualizar las cajas declaradas en distrobox.ini (sin alterar existentes)
-./scripts/stack.sh deploy
-
-# 3. Reconstrucción total (Compila e invoca assemble --replace en un solo paso)
-./scripts/stack.sh recreate
-
-# 4. Purga de limpieza (Elimina imágenes locales huérfanas o dangling)
-./scripts/stack.sh clean
-```
+* `ghcr.io/<owner>/net-ops:latest`
+* `ghcr.io/<owner>/pwsh-admin:latest`
+* `ghcr.io/<owner>/iot-dev:latest`
+* `ghcr.io/<owner>/ia-dev:latest`
+* `ghcr.io/<owner>/media-ops:latest`
 
 ### Orquestación Declarativa (`distrobox assemble`)
-El despliegue no utiliza bucles destructivos ni interactúa con sockets individuales; delega la convergencia de estado a Distrobox:
+Al estar los artefactos disponibles en GHCR, el despliegue en el host Atomic no requiere compilación local; el manifiesto `distrobox.ini` consume directamente las imágenes cloud:
 
 ```bash
 distrobox assemble create --replace --file distrobox.ini
@@ -100,15 +71,10 @@ distrobox assemble create --replace --file distrobox.ini
 
 ---
 
-## 🛡️ CI/CD & Hardening
+## 🧹 Pruning Automatizado (Systemd Timers)
 
-El repositorio incluye validación continua en `.github/workflows/linter.yml` bajo dos niveles de auditoría:
-1. **ShellCheck (`severity: error`):** Bloquea integraciones si los scripts de automatización presentan fallos lógicos, expansiones variables sin comillas dobles o redirecciones malformadas.
-2. **Hadolint (OCI Linter):** Audita los `Containerfiles` validando buenas prácticas en contenedores de sistema, con reglas de exclusión adaptadas a entornos *rolling-release* locales (`ignore: DL3007,DL3008,DL3041` para permitir `:latest` y autogestión de paquetería de repositorios nativos).
+El mantenimiento del disco NVMe secundario está orquestado por un servicio desatendido de Systemd en espacio de usuario (`~/.config/systemd/user/podman-prune.service` / `podman-prune.timer`).
 
----
-
-## 💡 Recomendaciones de Evolución Arquitectónica
-
-* **Pruning Automatizado (Systemd Timers):** Al trabajar con reconstrucciones frecuentes (`recreate`), el almacenamiento de OverlayFS puede acumular blobs inactivos en `/var/mnt/storage`. Se sugiere implementar un *timer* de usuario en systemd (`~/.config/systemd/user/podman-prune.timer`) que ejecute `podman system prune -f` semanalmente.
-* **Integración con GHCR (Cloud Caching):** Para provisionar nuevos hosts Atomic en segundos sin compilar localmente, se puede agregar un *job* al workflow de GitHub Actions que compile y publique las capas en el GitHub Container Registry (`ghcr.io/<user>/net-ops:latest`), cambiando el parámetro `pull=false` por `true` en el `distrobox.ini`.
+* **Programación:** Todos los domingos a las 02:00 AM (`Sun *-*-* 02:00:00`).
+* **Operación:** Ejecuta `podman system prune -a -f` y `sudo podman system prune -a -f` para eliminar blobs OCI huérfanos, cachés de compilación y capas OverlayFS inactivas, preservando intactos los volúmenes persistentes de datos.
+* **Auditoría:** `journalctl --user -t podman-prune -e`
