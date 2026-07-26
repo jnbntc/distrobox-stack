@@ -1,0 +1,10 @@
+FROM registry.fedoraproject.org/fedora:latest
+
+# Instalación de cliente GNS3 y Wireshark-Qt + CLI en una sola transacción limpia
+RUN dnf -y update && \
+    dnf -y install \
+        gns3-gui \
+        wireshark \
+        wireshark-cli && \
+    dnf clean all && \
+    rm -rf /var/cache/dnf /var/log/dnf.*
