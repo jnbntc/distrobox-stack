@@ -7,7 +7,7 @@ ENV GHIDRA_ZIP=ghidra_11.1.2_PUBLIC_20240709.zip
 
 RUN dnf -y upgrade --refresh && \
     dnf -y install --setopt=install_weak_deps=False --nodocs \
-        java-21-openjdk-headless wget unzip jq python3 python3-pip tmux \
+        java-latest-openjdk-headless wget unzip jq python3 python3-pip tmux \
     && dnf clean all && \
     echo "ALL ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/zzzz-nopasswd && \
     chmod 0440 /etc/sudoers.d/zzzz-nopasswd
