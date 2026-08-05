@@ -47,6 +47,7 @@ Las imágenes se compilan de forma automatizada mediante políticas *Zero-Bloat*
 | **`iot-dev`** | **Rootless** | USB Bus Mapped | Programación y flasheo de microcontroladores (ESP32-S3, Arduino, ARM). <br>• **HW Mapping:** Montaje dinámico del bus (`--device /dev/bus/usb:/dev/bus/usb:rwm`) + `--group-add keep-groups` para **Hot-Plugging serial real**. |
 | **`ia-dev`** | **Rootless** | GPU / DRI Mapped | Inferencia local, desarrollo de agentes y automatización LLM. Mapeo directo de aceleración por hardware (`/dev/dri`). |
 | **`media-ops`** | **Rootless** | Bridge genérico | Operaciones, transcodificación y procesamiento de streams multimedia en espacio de usuario. |
+| **`re-ops`** | **Rootless** | Aislado (`unshare_net`) | Ingeniería Inversa (SRE), extracción de IoCs y análisis estático de firmware. <br>• **Stack:** `ghidra` (Headless), `java-21-openjdk-headless`. |
 
 ---
 

@@ -2,7 +2,7 @@
 .PHONY: all build deploy clean-images recreate
 
 # Lista de contenedores basada en los sufijos de tus Containerfiles
-IMAGES := ia-dev iot-dev media-ops net-ops pwsh-admin
+IMAGES := ia-dev iot-dev media-ops net-ops pwsh-admin re-ops
 REGISTRY := localhost/custom
 
 all: build deploy
@@ -27,4 +27,3 @@ recreate: build
 # 4. Limpiar caché de imágenes locales antiguas
 clean-images:
 	podman rmi -f $$(podman images -q $(REGISTRY)/*) 2>/dev/null || true
-
