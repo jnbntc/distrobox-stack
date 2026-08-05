@@ -40,6 +40,8 @@ jobs:
             context: rootless
           - image: gns3-client
             context: rootless
+          - image: re-ops
+            context: rootless
 
     steps:
       - name: Checkout repository
