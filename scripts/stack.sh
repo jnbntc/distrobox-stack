@@ -2,7 +2,7 @@
 set -eo pipefail
 
 # Separar imágenes rootless de las rootful según la arquitectura del INI
-ROOTLESS_IMAGES=("ia-dev" "iot-dev" "media-ops" "pwsh-admin" "re-ops")
+ROOTLESS_IMAGES=("andible-ops" "ia-dev" "iot-dev" "media-ops" "pwsh-admin" "re-ops")
 ROOTFUL_IMAGES=("net-ops")
 REGISTRY="localhost/custom"
 

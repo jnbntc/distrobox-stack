@@ -2,7 +2,7 @@
 .PHONY: all build deploy clean-images recreate
 
 # Lista de contenedores basada en los sufijos de tus Containerfiles
-IMAGES := ia-dev iot-dev media-ops net-ops pwsh-admin re-ops
+IMAGES := ia-dev iot-dev media-ops net-ops pwsh-admin re-ops ansible-ops
 REGISTRY := localhost/custom
 
 all: build deploy
