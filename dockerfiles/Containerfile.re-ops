@@ -3,7 +3,7 @@ FROM registry.fedoraproject.org/fedora:latest
 ENV container=podman
 ENV DEBIAN_FRONTEND=noninteractive
 ENV GHIDRA_VERSION=11.1.2_PUBLIC
-ENV GHIDRA_ZIP=ghidra_11.1.2_PUBLIC_20240709.zip
+ENV GHIDRA_ZIP=ghidra_12.1.2_PUBLIC_20260605.zip
 
 RUN dnf -y upgrade --refresh && \
     dnf -y install --setopt=install_weak_deps=False --nodocs \
@@ -13,7 +13,7 @@ RUN dnf -y upgrade --refresh && \
     chmod 0440 /etc/sudoers.d/zzzz-nopasswd
 
 # Descarga y despliegue estándar en /opt
-RUN wget -q "https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_11.1.2_build/${GHIDRA_ZIP}" -O /tmp/ghidra.zip && \
+RUN wget -q "https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.1.2_build/${GHIDRA_ZIP}" -O /tmp/ghidra.zip && \
     unzip -q /tmp/ghidra.zip -d /opt/ && \
     rm /tmp/ghidra.zip && \
     ln -s /opt/ghidra_${GHIDRA_VERSION} /opt/ghidra
