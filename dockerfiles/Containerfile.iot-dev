@@ -1,7 +1,16 @@
-FROM docker.io/library/debian:bookworm-slim
+FROM debian:bookworm-slim
 
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    python3 python3-venv git curl build-essential make && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+# Evitar prompts interactivos durante la instalación
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Instalar dependencias base del sistema y Python
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    python3-pip \
+    python3-venv \
+    git \
+    udev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Instalar PlatformIO Core de forma limpia
+RUN python3 -m pip install --no-cache-dir --upgrade pip platformio
