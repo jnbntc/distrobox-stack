@@ -1,17 +1,24 @@
 FROM debian:bookworm-slim
 
-# Evitar prompts interactivos durante la instalación
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Instalar dependencias base del sistema y Python
+# Instalar dependencias del sistema incluyendo herramientas para venv
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
     python3-venv \
+    python3-full \
     git \
     udev \
     && rm -rf /var/lib/apt/lists/*
 
-# Instalar PlatformIO Core de forma limpia
-RUN python3 -m pip install --no-cache-dir --upgrade pip && \
-    python3 -m pip install --no-cache-dir platformio==6.1.16
+# Crear un entorno virtual dedicado para PlatformIO en /opt/pio
+RUN python3 -m venv /opt/pio
+
+# Actualizar pip e instalar PlatformIO de forma determinista dentro del venv
+RUN /opt/pio/bin/pip install --no-cache-dir --upgrade pip && \
+    /opt/pio/bin/pip install --no-cache-dir platformio==6.1.16
+
+# Exponer los binarios de PlatformIO globalmente creando enlaces simbólicos
+RUN ln -s /opt/pio/bin/pio /usr/local/bin/pio && \
+    ln -s /opt/pio/bin/platformio /usr/local/bin/platformio
