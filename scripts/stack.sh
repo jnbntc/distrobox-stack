@@ -2,7 +2,7 @@
 set -eo pipefail
 
 # Separar imágenes rootless de las rootful según la arquitectura del INI
-ROOTLESS_IMAGES=("ansible-ops" "gns3-client" "ia-dev" "iot-dev" "media-ops" "pwsh-admin" "re-ops" "book-ops")
+ROOTLESS_IMAGES=("gns3-client" "ia-dev" "iot-dev" "media-ops" "pwsh-admin" "re-ops" "book-ops")
 ROOTFUL_IMAGES=("net-ops")
 REGISTRY="localhost/custom"
 

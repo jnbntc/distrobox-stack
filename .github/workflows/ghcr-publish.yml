@@ -42,8 +42,6 @@ jobs:
             context: rootless
           - image: re-ops
             context: rootless
-          - image: ansible-ops
-            context: rootless
           - image: book-ops
             context: rootless
 
