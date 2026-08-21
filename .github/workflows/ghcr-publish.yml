@@ -44,6 +44,8 @@ jobs:
             context: rootless
           - image: ansible-ops
             context: rootless
+          - image: book-ops
+            context: rootless
 
     steps:
       - name: Checkout repository
