@@ -2,22 +2,36 @@ FROM docker.io/kalilinux/kali-rolling:latest
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && apt-get upgrade -y && \
-    apt-get install -y --no-install-recommends \
-        # Reconocimiento
-        nmap masscan tshark fping \
-        # Enumeración Web
-        ffuf gobuster nikto curl \
-        # Explotación y Fuerza Bruta
-        metasploit-framework sqlmap hashcat john hydra \
-        # Pivoting y Túneles
-        proxychains4 socat sshuttle openvpn \
-        # Utilidades base
-        iproute2 dnsutils iputils-ping \
-        python3 python3-pip jq tmux sudo \
-    && apt-get clean && rm -rf /var/lib/apt/lists/* && \
-    echo "ALL ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/zzzz-nopasswd && \
-    chmod 0440 /etc/sudoers.d/zzzz-nopasswd
+# 1. Dependencias Tácticas (Repositorios de Kali)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tmux \
+    rustscan \
+    feroxbuster \
+    ligolo-ng \
+    bmon \
+    pipx \
+    wget \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# 2. Pwncat-cs (Shell interactiva avanzada)
+ENV PIPX_HOME=/opt/pipx
+ENV PIPX_BIN_DIR=/usr/local/bin
+RUN pipx install pwncat-cs
+
+# 3. Binarios Estáticos (Servidos por Python HTTP Server)
+RUN mkdir -p /opt/static_tools && \
+    wget -qO /opt/static_tools/linpeas.sh https://github.com/peass-ng/PEASS-ng/releases/latest/download/linpeas.sh && \
+    wget -qO /opt/static_tools/winPEASx64.exe https://github.com/peass-ng/PEASS-ng/releases/latest/download/winPEASx64.exe
+
+# 4. Configuración Global de Tmux (Logging y persistencia)
+RUN git clone https://github.com/tmux-plugins/tmux-logging /opt/tmux-logging && \
+    echo "run-shell /opt/tmux-logging/logging.tmux" > /etc/tmux.conf && \
+    echo "set -g history-limit 100000" >> /etc/tmux.conf
+
+# 5. Inyección del Script de Workflow
+COPY scripts/htb-tmux.sh /usr/local/bin/htb-tmux
+RUN chmod +x /usr/local/bin/htb-tmux
 
 WORKDIR /htb
 CMD ["/bin/bash"]
