@@ -44,6 +44,10 @@ jobs:
             context: rootless
           - image: book-ops
             context: rootless
+          - image: net-ops
+              context: rootful
+          - image: htb-ops
+              context: rootful
 
     steps:
       - name: Checkout repository
