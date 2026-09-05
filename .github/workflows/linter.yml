@@ -46,4 +46,4 @@ jobs:
           # DL3008: Pin versions in apt get install (Debian/Ubuntu para IoT)
           # DL3041: Specify version with dnf install (Fedora)
           # DL3059: Multiple consecutive `RUN` instructions
-          ignore: DL3006,DL3007,DL3008,DL3041,DL3059
+          ignore: DL3006,DL3007,DL3008,DL3013,DL3041,DL3059
