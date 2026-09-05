@@ -60,13 +60,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build OCI Image (${{ matrix.image }})
+- name: Build OCI Image (${{ matrix.image }})
         run: |
           podman build \
             --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.image }}:latest \
             --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.image }}:${{ github.sha }} \
             --file dockerfiles/Containerfile.${{ matrix.image }} \
-            dockerfiles/
+            .
 
       - name: Push to GHCR
         run: |
