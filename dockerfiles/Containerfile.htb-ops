@@ -4,6 +4,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # 1. Dependencias Tácticas (Repositorios de Kali)
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    python3-dev \
     tmux \
     rustscan \
     feroxbuster \
