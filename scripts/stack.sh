@@ -2,7 +2,7 @@
 set -eo pipefail
 
 ROOTLESS_IMAGES=("ia-dev" "iot-dev" "media-ops" "pwsh-admin" "re-ops" "book-ops" "gns3-client")
-ROOTFUL_IMAGES=("net-ops")
+ROOTFUL_IMAGES=("net-ops" "htb-ops")
 REGISTRY="localhost/custom"
 REMOTE_REGISTRY="ghcr.io/jnbntc"
 

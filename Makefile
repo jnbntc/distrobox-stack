@@ -17,3 +17,6 @@ recreate:
 
 clean-images:
 	@./scripts/stack.sh clean
+
+pull:
+	@./scripts/stack.sh pull
