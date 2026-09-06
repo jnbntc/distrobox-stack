@@ -27,12 +27,12 @@ filter_targets() {
 build() {
     for img in $(filter_targets "${ROOTLESS_IMAGES[@]}"); do
         echo "=== [BUILD USER] Construyendo ${REGISTRY}/${img}:latest ==="
-        podman build -t "${REGISTRY}/${img}:latest" -f "dockerfiles/Containerfile.${img}" dockerfiles/
+        podman build -t "${REGISTRY}/${img}:latest" -f "dockerfiles/Containerfile.${img}" .
     done
 
     for img in $(filter_targets "${ROOTFUL_IMAGES[@]}"); do
         echo "=== [BUILD ROOT] Construyendo ${REGISTRY}/${img}:latest ==="
-        sudo podman build -t "${REGISTRY}/${img}:latest" -f "dockerfiles/Containerfile.${img}" dockerfiles/
+        sudo podman build -t "${REGISTRY}/${img}:latest" -f "dockerfiles/Containerfile.${img}" .
     done
 }
 
@@ -50,13 +50,22 @@ pull_images() {
 
 deploy() {
     echo "=== [DEPLOY] Ensamblando contenedores faltantes desde distrobox.ini ==="
-    distrobox assemble create --file distrobox.ini
+    if [ ${#TARGETS[@]} -eq 0 ]; then
+        distrobox assemble create --file distrobox.ini
+    else
+        distrobox assemble create --file distrobox.ini --name "${TARGETS[@]}"
+    fi
 }
 
 recreate() {
-    build
+    # Hacemos pull para asegurar la última versión de GHCR antes de recrear
+    pull_images
     echo "=== [RECREATE] Reemplazando infra existente ==="
-    distrobox assemble create --file distrobox.ini --replace
+    if [ ${#TARGETS[@]} -eq 0 ]; then
+        distrobox assemble create --file distrobox.ini --replace
+    else
+        distrobox assemble create --file distrobox.ini --replace --name "${TARGETS[@]}"
+    fi
 }
 
 clean_images() {
