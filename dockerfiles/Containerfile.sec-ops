@@ -32,8 +32,9 @@ RUN git clone https://github.com/tmux-plugins/tmux-logging /opt/tmux-logging && 
     echo "set -g history-limit 100000" >> /etc/tmux.conf
 
 # 5. Inyección del Script de Workflow
-COPY scripts/htb-tmux.sh /usr/local/bin/htb-tmux
-RUN chmod +x /usr/local/bin/htb-tmux
+# 5. Inyección del Script de Workflow
+COPY scripts/sec-tmux.sh /usr/local/bin/sec-tmux
+RUN chmod +x /usr/local/bin/sec-tmux
 
-WORKDIR /htb
+WORKDIR /sec
 CMD ["/bin/bash"]

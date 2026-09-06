@@ -28,7 +28,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - image: pwsh-admin
+          - image: sys-ops
             context: rootless
           - image: iot-dev
             context: rootless
@@ -40,13 +40,10 @@ jobs:
             context: rootless
           - image: re-ops
             context: rootless
-          - image: book-ops
-            context: rootless
           - image: net-ops
             context: rootful
-          - image: htb-ops
+          - image: sec-ops
             context: rootful
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
