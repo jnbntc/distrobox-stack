@@ -1,6 +1,9 @@
 FROM registry.fedoraproject.org/fedora-toolbox:latest
 
-# 1. Dependencias Base (Eliminamos gcc, pipx, numpy y devel)
+# Directiva estricta para heredar códigos de error en tuberías (Regla Hadolint DL4006)
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# 1. Dependencias Base
 RUN dnf install -y \
     clinfo intel-compute-runtime libva-intel-media-driver \
     python3 zstd curl \
@@ -13,5 +16,4 @@ RUN dnf install -y \
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # 3. Instalación global de Aider-chat vía uv
-# Exponemos el binario directo en /usr/local/bin para evitar problemas de $PATH
 RUN /root/.cargo/bin/uv tool install --dir /usr/local/bin aider-chat
