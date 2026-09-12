@@ -1,10 +1,10 @@
 FROM registry.fedoraproject.org/fedora-toolbox:latest
 
+# Volamos gcc, g++, python-devel y gfortran. Imagen limpia.
 # hadolint ignore=DL4006
 RUN dnf install -y \
     clinfo intel-compute-runtime libva-intel-media-driver \
-    python3 python3-devel zstd curl \
-    gcc gcc-c++ \
+    python3 zstd curl \
     oneapi-level-zero oneapi-level-zero-devel \
     ocl-icd ocl-icd-devel && \
     dnf clean all && \
@@ -16,4 +16,5 @@ RUN curl -LsSf -o install_uv.sh https://astral.sh/uv/install.sh && \
 
 ENV UV_TOOL_BIN_DIR=/usr/local/bin
 
-RUN /root/.local/bin/uv tool install aider-chat
+# Forzamos Python 3.12 para que descargue los wheels precompilados mágicamente
+RUN /root/.local/bin/uv tool install --python 3.12 aider-chat
