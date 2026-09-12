@@ -1,8 +1,10 @@
 FROM registry.fedoraproject.org/fedora-toolbox:latest
 
+# hadolint ignore=DL4006
 RUN dnf install -y \
     clinfo intel-compute-runtime libva-intel-media-driver \
     python3 zstd curl \
+    gcc gcc-c++ \
     oneapi-level-zero oneapi-level-zero-devel \
     ocl-icd ocl-icd-devel && \
     dnf clean all && \
@@ -12,8 +14,6 @@ RUN curl -LsSf -o install_uv.sh https://astral.sh/uv/install.sh && \
     sh install_uv.sh && \
     rm install_uv.sh
 
-# Declaramos la ruta global para los binarios de uv
 ENV UV_TOOL_BIN_DIR=/usr/local/bin
 
-# Instalamos sin el flag erróneo
 RUN /root/.local/bin/uv tool install aider-chat
