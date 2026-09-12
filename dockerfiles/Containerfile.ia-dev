@@ -8,9 +8,12 @@ RUN dnf install -y \
     dnf clean all && \
     rm -rf /var/cache/dnf
 
-# Descarga, ejecución secuencial y limpieza (cumple Hadolint orgánicamente sin pipes)
 RUN curl -LsSf -o install_uv.sh https://astral.sh/uv/install.sh && \
     sh install_uv.sh && \
     rm install_uv.sh
 
-RUN /root/.local/bin/uv tool install --dir /usr/local/bin aider-chat
+# Declaramos la ruta global para los binarios de uv
+ENV UV_TOOL_BIN_DIR=/usr/local/bin
+
+# Instalamos sin el flag erróneo
+RUN /root/.local/bin/uv tool install aider-chat
