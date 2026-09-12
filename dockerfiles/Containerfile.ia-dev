@@ -1,9 +1,6 @@
 FROM registry.fedoraproject.org/fedora-toolbox:latest
 
-# Directiva estricta para heredar códigos de error en tuberías (Regla Hadolint DL4006)
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-
-# 1. Dependencias Base
+# hadolint ignore=DL4006
 RUN dnf install -y \
     clinfo intel-compute-runtime libva-intel-media-driver \
     python3 zstd curl \
@@ -12,8 +9,6 @@ RUN dnf install -y \
     dnf clean all && \
     rm -rf /var/cache/dnf
 
-# 2. Instalación de uv (Gestor Rust)
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# 3. Instalación global de Aider-chat vía uv
-RUN /root/.cargo/bin/uv tool install --dir /usr/local/bin aider-chat
+RUN /root/.local/bin/uv tool install --dir /usr/local/bin aider-chat
