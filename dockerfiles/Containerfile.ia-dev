@@ -6,9 +6,9 @@ ENV PIPX_BIN_DIR=/usr/local/bin
 RUN dnf install -y \
     clinfo intel-compute-runtime libva-intel-media-driver \
     python3 python3-devel python3-pip pipx zstd \
-    gcc gcc-c++ \
+    gcc gcc-c++ python3-numpy python3-setuptools \
     oneapi-level-zero oneapi-level-zero-devel \
     ocl-icd ocl-icd-devel && \
     dnf clean all && \
     rm -rf /var/cache/dnf && \
-    pipx install aider-chat
+    pipx install --system-site-packages aider-chat
