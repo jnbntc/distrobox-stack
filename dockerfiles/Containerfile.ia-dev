@@ -6,4 +6,5 @@ RUN dnf install -y \
     oneapi-level-zero oneapi-level-zero-devel \
     ocl-icd ocl-icd-devel && \
     dnf clean all && \
-    rm -rf /var/cache/dnf
+    rm -rf /var/cache/dnf \
+    pipx install aider-chat
