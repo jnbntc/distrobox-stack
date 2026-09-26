@@ -1,8 +1,8 @@
 FROM registry.fedoraproject.org/fedora:latest
 
 ENV container=podman
-ENV DEBIAN_FRONTEND=noninteractive
-ENV GHIDRA_VERSION=11.1.2_PUBLIC
+ENV GHIDRA_VERSION=12.1.2_PUBLIC
+ENV GHIDRA_BUILD=20260605
 ENV GHIDRA_ZIP=ghidra_12.1.2_PUBLIC_20260605.zip
 
 RUN dnf -y upgrade --refresh && \
@@ -12,11 +12,11 @@ RUN dnf -y upgrade --refresh && \
     echo "ALL ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/zzzz-nopasswd && \
     chmod 0440 /etc/sudoers.d/zzzz-nopasswd
 
-# Descarga y despliegue estándar en /opt
 RUN wget -q "https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_12.1.2_build/${GHIDRA_ZIP}" -O /tmp/ghidra.zip && \
     unzip -q /tmp/ghidra.zip -d /opt/ && \
     rm /tmp/ghidra.zip && \
-    ln -s /opt/ghidra_${GHIDRA_VERSION} /opt/ghidra
+    ln -s "/opt/ghidra_${GHIDRA_VERSION}" /opt/ghidra && \
+    test -x /opt/ghidra/support/analyzeHeadless
 
 WORKDIR /ops
 CMD ["/bin/bash"]
