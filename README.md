@@ -29,30 +29,34 @@ Stack declarativo de entornos especializados sobre Fedora Atomic usando Podman, 
 
 Calibre reemplaza el antiguo `media-ops`. Darktable queda como Flatpak en el host.
 
-Tor no arranca automáticamente. Se controla explícitamente:
+Incluye `usbutils` para diagnóstico USB y el Kindle se expone al contenedor mediante `/dev/bus/usb`.
+
+Tor no arranca automáticamente. El helper ignora el `/etc/tor/torrc` del paquete y usa un runtime de usuario propio, evitando sockets de control bajo `/run/tor`:
 
 ```bash
 books-tor start
 books-tor status
 books-tor check
+books-tor logs
 torsocks curl https://example.org/
 books-tor stop
 ```
 
-Los binarios `calibredb`, `ebook-convert` y `books-tor` se exportan a `~/.local/bin`, y Calibre se exporta como aplicación gráfica.
+Los binarios `calibredb`, `ebook-convert` y `books-tor` se exportan al path por defecto de Distrobox (`$HOME/.local/bin`), y Calibre se exporta como aplicación gráfica.
 
 ## Uso
 
-Sincronizar imágenes publicadas y crear contenedores faltantes:
+El host no necesita `make`. El flujo recomendado usa directamente el orquestador:
 
 ```bash
-make
+./scripts/stack.sh pull
+./scripts/stack.sh deploy
 ```
 
 Recrear todo desde las imágenes actuales de GHCR:
 
 ```bash
-make recreate
+./scripts/stack.sh recreate
 ```
 
 Recrear un único workspace:
@@ -60,6 +64,8 @@ Recrear un único workspace:
 ```bash
 ./scripts/stack.sh recreate books-ops
 ```
+
+El `Makefile` se conserva sólo como conveniencia si `make` ya está instalado.
 
 Build local para desarrollo:
 

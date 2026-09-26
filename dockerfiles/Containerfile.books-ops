@@ -8,6 +8,7 @@ RUN dnf -y install --setopt=install_weak_deps=False --nodocs \
         curl \
         wget \
         jq \
+        usbutils \
     && dnf clean all \
     && rm -rf /var/cache/dnf
 
