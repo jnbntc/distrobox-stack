@@ -1,0 +1,177 @@
+name: Maintenance - Actions and GHCR
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '30 4 * * 0'
+  push:
+    branches: [ "main" ]
+    paths:
+      - '.github/workflows/maintenance.yml'
+
+permissions:
+  contents: read
+  actions: write
+  packages: write
+
+env:
+  KEEP_RUNS: "10"
+  KEEP_PACKAGE_VERSIONS: "3"
+
+jobs:
+  cleanup-actions:
+    name: Prune old workflow runs
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Keep latest workflow runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          workflows=(
+            "ghcr-publish.yml"
+            "linter.yml"
+            "maintenance.yml"
+          )
+
+          for workflow in "${workflows[@]}"; do
+            echo "==> Workflow: $workflow"
+
+            mapfile -t run_ids < <(
+              gh api                 -H "X-GitHub-Api-Version: 2026-03-10"                 "/repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/runs?status=completed&per_page=100"                 --jq '.workflow_runs[].id'
+            )
+
+            if (( ${#run_ids[@]} <= KEEP_RUNS )); then
+              echo "Conservando los ${#run_ids[@]} runs existentes."
+              continue
+            fi
+
+            for run_id in "${run_ids[@]:KEEP_RUNS}"; do
+              echo "Eliminando run $run_id"
+              gh api                 --method DELETE                 -H "X-GitHub-Api-Version: 2026-03-10"                 "/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}"
+            done
+          done
+
+  cleanup-ghcr:
+    name: Prune old GHCR versions
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - sys-ops
+          - iot-dev
+          - ia-dev
+          - books-ops
+          - gns3-client
+          - re-ops
+          - net-ops
+          - sec-ops
+
+    steps:
+      - name: Keep latest container versions
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACKAGE: ${{ matrix.package }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          endpoint="/users/${GITHUB_REPOSITORY_OWNER}/packages/container/${PACKAGE}/versions?per_page=100"
+
+          versions="$(
+            gh api               -H "X-GitHub-Api-Version: 2026-03-10"               "$endpoint"
+          )"
+
+          version_count="$(jq 'length' <<<"$versions")"
+          echo "==> ${PACKAGE}: ${version_count} versiones"
+
+          if (( version_count <= KEEP_PACKAGE_VERSIONS )); then
+            echo "Nada para limpiar."
+            exit 0
+          fi
+
+          mapfile -t keep_ids < <(
+            jq -r --argjson keep "$KEEP_PACKAGE_VERSIONS" '
+              sort_by(.created_at)
+              | reverse
+              | (
+                  (.[0:$keep] | map(.id))
+                  +
+                  (
+                    map(
+                      select(
+                        ((.metadata.container.tags // []) | index("latest")) != null
+                      )
+                    )
+                    | map(.id)
+                  )
+                )
+              | unique[]
+            ' <<<"$versions"
+          )
+
+          declare -A keep=()
+          for id in "${keep_ids[@]}"; do
+            keep["$id"]=1
+          done
+
+          while IFS=$'\t' read -r id created tags; do
+            if [[ -n "${keep[$id]:-}" ]]; then
+              echo "KEEP   id=$id created=$created tags=$tags"
+              continue
+            fi
+
+            echo "DELETE id=$id created=$created tags=$tags"
+            gh api               --method DELETE               -H "X-GitHub-Api-Version: 2026-03-10"               "/users/${GITHUB_REPOSITORY_OWNER}/packages/container/${PACKAGE}/versions/${id}"
+          done < <(
+            jq -r '
+              sort_by(.created_at)
+              | reverse
+              | .[]
+              | [
+                  .id,
+                  .created_at,
+                  ((.metadata.container.tags // []) | join(","))
+                ]
+              | @tsv
+            ' <<<"$versions"
+          )
+
+  remove-obsolete-package:
+    name: Remove obsolete media-ops package
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Delete all media-ops versions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          package="media-ops"
+          endpoint="/users/${GITHUB_REPOSITORY_OWNER}/packages/container/${package}/versions?per_page=100"
+
+          if ! versions="$(
+            gh api               -H "X-GitHub-Api-Version: 2026-03-10"               "$endpoint" 2>/dev/null
+          )"; then
+            echo "media-ops ya no existe en GHCR."
+            exit 0
+          fi
+
+          mapfile -t ids < <(jq -r '.[].id' <<<"$versions")
+
+          if (( ${#ids[@]} == 0 )); then
+            echo "media-ops no tiene versiones activas."
+            exit 0
+          fi
+
+          for id in "${ids[@]}"; do
+            echo "Eliminando media-ops version $id"
+            gh api               --method DELETE               -H "X-GitHub-Api-Version: 2026-03-10"               "/users/${GITHUB_REPOSITORY_OWNER}/packages/container/${package}/versions/${id}"
+          done
