@@ -2,10 +2,12 @@ FROM docker.io/kalilinux/kali-rolling:latest
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# 1. Dependencias Tácticas (Repositorios de Kali)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     python3-dev \
+    python3 \
+    openvpn \
+    iproute2 \
     tmux \
     rustscan \
     feroxbuster \
@@ -16,23 +18,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# 2. Pwncat-cs (Shell interactiva avanzada)
 ENV PIPX_HOME=/opt/pipx
 ENV PIPX_BIN_DIR=/usr/local/bin
 RUN pipx install pwncat-cs
 
-# 3. Binarios Estáticos (Servidos por Python HTTP Server)
 RUN mkdir -p /opt/static_tools && \
     wget -qO /opt/static_tools/linpeas.sh https://github.com/peass-ng/PEASS-ng/releases/latest/download/linpeas.sh && \
     wget -qO /opt/static_tools/winPEASx64.exe https://github.com/peass-ng/PEASS-ng/releases/latest/download/winPEASx64.exe
 
-# 4. Configuración Global de Tmux (Logging y persistencia)
 RUN git clone https://github.com/tmux-plugins/tmux-logging /opt/tmux-logging && \
     echo "run-shell /opt/tmux-logging/logging.tmux" > /etc/tmux.conf && \
     echo "set -g history-limit 100000" >> /etc/tmux.conf
 
-# 5. Inyección del Script de Workflow
-# 5. Inyección del Script de Workflow
 COPY scripts/sec-tmux.sh /usr/local/bin/sec-tmux
 RUN chmod +x /usr/local/bin/sec-tmux
 
