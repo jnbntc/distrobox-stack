@@ -1,16 +1,22 @@
 FROM registry.fedoraproject.org/fedora-toolbox:latest
 
-RUN FEDORA_VERSION="$(rpm -E '%fedora')" && \
-    curl -fsSL \
-      "https://packages.microsoft.com/config/fedora/${FEDORA_VERSION}/packages-microsoft-prod.rpm" \
-      -o /tmp/packages-microsoft-prod.rpm && \
-    rpm -Uvh /tmp/packages-microsoft-prod.rpm && \
-    rm -f /tmp/packages-microsoft-prod.rpm && \
-    dnf install -y \
-        powershell \
+ARG POWERSHELL_VERSION=7.6.6
+ARG POWERSHELL_SHA256=D3F9BCE6B6F0723DB49DDB4681FDEE2A332492BFD1238A305B0FBDB7825E786F
+
+RUN dnf install -y \
+        curl \
         krb5-workstation \
         bind-utils \
         iproute \
         jq && \
+    curl -fsSL \
+        "https://github.com/PowerShell/PowerShell/releases/download/v${POWERSHELL_VERSION}/powershell-${POWERSHELL_VERSION}-1.rh.x86_64.rpm" \
+        -o /tmp/powershell.rpm && \
+    printf '%s  %s\n' "${POWERSHELL_SHA256}" "/tmp/powershell.rpm" > /tmp/powershell.sha256 && \
+    sha256sum -c /tmp/powershell.sha256 && \
+    rpm --import https://packages.microsoft.com/keys/microsoft.asc && \
+    dnf install -y /tmp/powershell.rpm && \
+    rm -f /tmp/powershell.rpm /tmp/powershell.sha256 && \
+    pwsh --version && \
     dnf clean all && \
     rm -rf /var/cache/dnf
