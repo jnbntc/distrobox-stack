@@ -1,11 +1,10 @@
 # Orquestador del Stack Distrobox en Fedora Atomic
-.PHONY: all build deploy clean-images recreate
+.PHONY: all build deploy clean-images recreate pull
 
-all: build deploy
+# Flujo normal del host: sincronizar imágenes publicadas y crear faltantes.
+all: pull deploy
 
-# Delega la lógica de compilación y orquestación al script en bash
-# para soportar unificación de contexto rootful/rootless de manera segura.
-
+# Build local sólo para desarrollo/pruebas. No se usa automáticamente en deploy.
 build:
 	@./scripts/stack.sh build
 
