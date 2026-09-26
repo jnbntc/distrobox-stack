@@ -77,7 +77,15 @@ Build local para desarrollo:
 
 ## CI/CD
 
-`.github/workflows/ghcr-publish.yml` construye y publica semanalmente y ante cambios en Containerfiles/scripts. Además ejecuta smoke tests básicos para books-ops, re-ops y sec-ops.
+`.github/workflows/ghcr-publish.yml` construye y publica semanalmente y ante cambios en Containerfiles/scripts. Además ejecuta smoke tests básicos para los workspaces críticos.
+
+`.github/workflows/maintenance.yml` aplica una política de retención semanal:
+
+- conserva los **10 runs completados más recientes** por workflow;
+- conserva las **3 versiones más recientes** de cada imagen activa en GHCR, protegiendo además cualquier versión etiquetada como `latest`;
+- elimina las versiones restantes del paquete obsoleto `media-ops`.
+
+Esto mantiene capacidad de rollback sin acumular indefinidamente tags SHA ni historial de Actions.
 
 ## Almacenamiento
 
