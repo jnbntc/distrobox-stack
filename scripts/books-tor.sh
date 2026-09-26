@@ -7,6 +7,8 @@ PID_FILE="$RUNTIME_DIR/tor.pid"
 SOCKS_PORT="${BOOKS_TOR_SOCKS_PORT:-9050}"
 LOG_FILE="$DATA_DIR/notices.log"
 CACHE_DIR="$DATA_DIR/cache"
+TORRC="/etc/tor/books-ops/torrc"
+DEFAULTS_TORRC="/etc/tor/books-ops/torrc-defaults"
 
 mkdir -p "$DATA_DIR" "$CACHE_DIR" "$RUNTIME_DIR"
 chmod 700 "$DATA_DIR" "$CACHE_DIR" "$RUNTIME_DIR" 2>/dev/null || true
@@ -25,8 +27,8 @@ case "${1:-status}" in
         rm -f "$PID_FILE"
 
         tor \
-            -f /dev/null \
-            --defaults-torrc /dev/null \
+            -f "$TORRC" \
+            --defaults-torrc "$DEFAULTS_TORRC" \
             --RunAsDaemon 1 \
             --ClientOnly 1 \
             --SocksPort "127.0.0.1:$SOCKS_PORT" \
