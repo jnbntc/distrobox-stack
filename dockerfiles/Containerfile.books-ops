@@ -10,7 +10,11 @@ RUN dnf -y install --setopt=install_weak_deps=False --nodocs \
         jq \
         usbutils \
     && dnf clean all \
-    && rm -rf /var/cache/dnf
+    && rm -rf /var/cache/dnf \
+    && install -d -m 0755 /etc/tor/books-ops \
+    && printf '%s\n' '# books-ops dedicated torrc' > /etc/tor/books-ops/torrc \
+    && printf '%s\n' '# books-ops dedicated defaults' > /etc/tor/books-ops/torrc-defaults \
+    && chmod 0644 /etc/tor/books-ops/torrc /etc/tor/books-ops/torrc-defaults
 
 COPY scripts/books-tor.sh /usr/local/bin/books-tor
 RUN chmod 0755 /usr/local/bin/books-tor
