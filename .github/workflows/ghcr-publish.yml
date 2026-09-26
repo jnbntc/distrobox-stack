@@ -67,7 +67,7 @@ jobs:
         run: |
           case "${{ matrix.image }}" in
             books-ops)
-              podman run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/books-ops:latest sh -lc 'command -v calibre && command -v tor && command -v books-tor'
+              podman run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/books-ops:latest sh -lc 'command -v calibre && command -v calibredb && command -v ebook-convert && command -v tor && command -v books-tor && command -v lsusb && tor -f /dev/null --defaults-torrc /dev/null --verify-config'
               ;;
             re-ops)
               podman run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/re-ops:latest test -x /opt/ghidra/support/analyzeHeadless
