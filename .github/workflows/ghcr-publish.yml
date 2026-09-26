@@ -2,18 +2,17 @@ name: OCI Build & Publish to GHCR
 
 on:
   schedule:
-    # Compilación desatendida de mantenimiento todos los lunes a las 03:00 UTC
     - cron: '0 3 * * 1'
   push:
     branches: [ "main", "master" ]
     paths:
       - 'dockerfiles/**'
+      - 'scripts/**'
       - '.github/workflows/ghcr-publish.yml'
-  workflow_dispatch: # Permite disparar la compilación manual desde la web
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
-  # Convierte el nombre del repo a minúsculas automáticamente
   IMAGE_NAME: ${{ github.repository_owner }}
 
 jobs:
@@ -22,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write # Requerido para empujar a ghcr.io
+      packages: write
 
     strategy:
       fail-fast: false
@@ -34,7 +33,7 @@ jobs:
             context: rootless
           - image: ia-dev
             context: rootless
-          - image: media-ops
+          - image: books-ops
             context: rootless
           - image: gns3-client
             context: rootless
@@ -44,6 +43,7 @@ jobs:
             context: rootful
           - image: sec-ops
             context: rootful
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -62,6 +62,20 @@ jobs:
             --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.image }}:${{ github.sha }} \
             --file dockerfiles/Containerfile.${{ matrix.image }} \
             .
+
+      - name: Smoke test OCI image
+        run: |
+          case "${{ matrix.image }}" in
+            books-ops)
+              podman run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/books-ops:latest sh -lc 'command -v calibre && command -v tor && command -v books-tor'
+              ;;
+            re-ops)
+              podman run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/re-ops:latest test -x /opt/ghidra/support/analyzeHeadless
+              ;;
+            sec-ops)
+              podman run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/sec-ops:latest sh -lc 'command -v openvpn && command -v pwncat-cs'
+              ;;
+          esac
 
       - name: Push to GHCR
         run: |
