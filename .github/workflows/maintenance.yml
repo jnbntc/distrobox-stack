@@ -41,7 +41,10 @@ jobs:
             echo "==> Workflow: $workflow"
 
             mapfile -t run_ids < <(
-              gh api                 -H "X-GitHub-Api-Version: 2026-03-10"                 "/repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/runs?status=completed&per_page=100"                 --jq '.workflow_runs[].id'
+              gh api \
+                -H "X-GitHub-Api-Version: 2026-03-10" \
+                "/repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/runs?status=completed&per_page=100" \
+                --jq '.workflow_runs[].id'
             )
 
             if (( ${#run_ids[@]} <= KEEP_RUNS )); then
@@ -51,7 +54,10 @@ jobs:
 
             for run_id in "${run_ids[@]:KEEP_RUNS}"; do
               echo "Eliminando run $run_id"
-              gh api                 --method DELETE                 -H "X-GitHub-Api-Version: 2026-03-10"                 "/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}"
+              gh api \
+                --method DELETE \
+                -H "X-GitHub-Api-Version: 2026-03-10" \
+                "/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}"
             done
           done
 
@@ -81,10 +87,40 @@ jobs:
         run: |
           set -euo pipefail
 
+          delete_package_version() {
+            local package="$1"
+            local id="$2"
+            local error_file
+            error_file="$(mktemp)"
+
+            if gh api \
+              --method DELETE \
+              -H "X-GitHub-Api-Version: 2026-03-10" \
+              "/users/${GITHUB_REPOSITORY_OWNER}/packages/container/${package}/versions/${id}" \
+              2>"$error_file"; then
+              rm -f "$error_file"
+              return 0
+            fi
+
+            if grep -Fq "more than 5000 downloads cannot be deleted" "$error_file"; then
+              echo "::warning title=GHCR protected version::SKIP ${package} version ${id}: GitHub protects public package versions with more than 5000 downloads."
+              cat "$error_file" >&2
+              rm -f "$error_file"
+              return 0
+            fi
+
+            echo "::error title=GHCR delete failed::Could not delete ${package} version ${id}."
+            cat "$error_file" >&2
+            rm -f "$error_file"
+            return 1
+          }
+
           endpoint="/users/${GITHUB_REPOSITORY_OWNER}/packages/container/${PACKAGE}/versions?per_page=100"
 
           versions="$(
-            gh api               -H "X-GitHub-Api-Version: 2026-03-10"               "$endpoint"
+            gh api \
+              -H "X-GitHub-Api-Version: 2026-03-10" \
+              "$endpoint"
           )"
 
           version_count="$(jq 'length' <<<"$versions")"
@@ -127,7 +163,7 @@ jobs:
             fi
 
             echo "DELETE id=$id created=$created tags=$tags"
-            gh api               --method DELETE               -H "X-GitHub-Api-Version: 2026-03-10"               "/users/${GITHUB_REPOSITORY_OWNER}/packages/container/${PACKAGE}/versions/${id}"
+            delete_package_version "$PACKAGE" "$id"
           done < <(
             jq -r '
               sort_by(.created_at)
@@ -147,18 +183,48 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Delete all media-ops versions
+      - name: Delete all deletable media-ops versions
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
 
+          delete_package_version() {
+            local package="$1"
+            local id="$2"
+            local error_file
+            error_file="$(mktemp)"
+
+            if gh api \
+              --method DELETE \
+              -H "X-GitHub-Api-Version: 2026-03-10" \
+              "/users/${GITHUB_REPOSITORY_OWNER}/packages/container/${package}/versions/${id}" \
+              2>"$error_file"; then
+              rm -f "$error_file"
+              return 0
+            fi
+
+            if grep -Fq "more than 5000 downloads cannot be deleted" "$error_file"; then
+              echo "::warning title=GHCR protected version::SKIP ${package} version ${id}: GitHub protects public package versions with more than 5000 downloads. GitHub Support is required to remove it."
+              cat "$error_file" >&2
+              rm -f "$error_file"
+              return 0
+            fi
+
+            echo "::error title=GHCR delete failed::Could not delete ${package} version ${id}."
+            cat "$error_file" >&2
+            rm -f "$error_file"
+            return 1
+          }
+
           package="media-ops"
           endpoint="/users/${GITHUB_REPOSITORY_OWNER}/packages/container/${package}/versions?per_page=100"
 
           if ! versions="$(
-            gh api               -H "X-GitHub-Api-Version: 2026-03-10"               "$endpoint" 2>/dev/null
+            gh api \
+              -H "X-GitHub-Api-Version: 2026-03-10" \
+              "$endpoint" 2>/dev/null
           )"; then
             echo "media-ops ya no existe en GHCR."
             exit 0
@@ -172,6 +238,9 @@ jobs:
           fi
 
           for id in "${ids[@]}"; do
-            echo "Eliminando media-ops version $id"
-            gh api               --method DELETE               -H "X-GitHub-Api-Version: 2026-03-10"               "/users/${GITHUB_REPOSITORY_OWNER}/packages/container/${package}/versions/${id}"
+            echo "DELETE media-ops version $id"
+            delete_package_version "$package" "$id"
           done
+
+          echo "Limpieza de media-ops completada."
+          echo "Si quedan versiones protegidas por el límite de 5000 descargas de GitHub, el paquete seguirá visible hasta que GitHub Support las elimine."
