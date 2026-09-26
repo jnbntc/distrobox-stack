@@ -1,0 +1,17 @@
+FROM registry.fedoraproject.org/fedora-toolbox:latest
+
+RUN dnf -y install --setopt=install_weak_deps=False --nodocs \
+        calibre \
+        tor \
+        torsocks \
+        aria2 \
+        curl \
+        wget \
+        jq \
+    && dnf clean all \
+    && rm -rf /var/cache/dnf
+
+COPY scripts/books-tor.sh /usr/local/bin/books-tor
+RUN chmod 0755 /usr/local/bin/books-tor
+
+CMD ["/bin/bash"]
