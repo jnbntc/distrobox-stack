@@ -70,7 +70,16 @@ jobs:
               podman run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/books-ops:latest sh -lc 'command -v calibre && command -v calibredb && command -v ebook-convert && command -v tor && command -v books-tor && command -v lsusb && tor -f /etc/tor/books-ops/torrc --defaults-torrc /etc/tor/books-ops/torrc-defaults --verify-config'
               ;;
             re-ops)
-              podman run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/re-ops:latest test -x /opt/ghidra/support/analyzeHeadless
+              podman run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/re-ops:latest bash -lc '
+                set -e
+                test -x "$JAVA_HOME/bin/java"
+                test -x "$JAVA_HOME/bin/javac"
+                java -version
+                javac -version
+                out="$(/opt/ghidra/support/analyzeHeadless 2>&1 || true)"
+                printf "%s\n" "$out"
+                grep -q "Headless Analyzer Usage:" <<<"$out"
+              '
               ;;
             sec-ops)
               podman run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/sec-ops:latest sh -lc 'command -v openvpn && command -v pwncat-cs'
