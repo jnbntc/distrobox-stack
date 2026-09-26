@@ -1,8 +1,8 @@
 FROM registry.fedoraproject.org/fedora-toolbox:latest
 
-RUN source /etc/os-release && \
+RUN FEDORA_VERSION="$(rpm -E '%fedora')" && \
     curl -fsSL \
-      "https://packages.microsoft.com/config/fedora/${VERSION_ID}/packages-microsoft-prod.rpm" \
+      "https://packages.microsoft.com/config/fedora/${FEDORA_VERSION}/packages-microsoft-prod.rpm" \
       -o /tmp/packages-microsoft-prod.rpm && \
     rpm -Uvh /tmp/packages-microsoft-prod.rpm && \
     rm -f /tmp/packages-microsoft-prod.rpm && \
