@@ -12,10 +12,11 @@ RUN dnf install -y \
     curl -fsSL \
         "https://github.com/PowerShell/PowerShell/releases/download/v${POWERSHELL_VERSION}/powershell-${POWERSHELL_VERSION}-1.rh.x86_64.rpm" \
         -o /tmp/powershell.rpm && \
-    echo "${POWERSHELL_SHA256}  /tmp/powershell.rpm" | sha256sum -c - && \
+    printf '%s  %s\n' "${POWERSHELL_SHA256}" "/tmp/powershell.rpm" > /tmp/powershell.sha256 && \
+    sha256sum -c /tmp/powershell.sha256 && \
     rpm --import https://packages.microsoft.com/keys/microsoft.asc && \
     dnf install -y /tmp/powershell.rpm && \
-    rm -f /tmp/powershell.rpm && \
+    rm -f /tmp/powershell.rpm /tmp/powershell.sha256 && \
     pwsh --version && \
     dnf clean all && \
     rm -rf /var/cache/dnf
