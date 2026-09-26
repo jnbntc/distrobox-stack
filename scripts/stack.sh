@@ -1,16 +1,15 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
-ROOTLESS_IMAGES=("ia-dev" "iot-dev" "media-ops" "sys-ops" "re-ops" "gns3-client")
+ROOTLESS_IMAGES=("ia-dev" "iot-dev" "books-ops" "sys-ops" "re-ops" "gns3-client")
 ROOTFUL_IMAGES=("net-ops" "sec-ops")
 REGISTRY="localhost/custom"
 REMOTE_REGISTRY="ghcr.io/jnbntc"
 
-ACTION=$1
+ACTION=${1:-}
 shift 1 2>/dev/null || true
 TARGETS=("$@")
 
-# Filtro de intersección: Cruza los contenedores solicitados contra el array nativo
 filter_targets() {
     local base_array=("$@")
     if [ ${#TARGETS[@]} -eq 0 ]; then
@@ -58,9 +57,7 @@ deploy() {
 }
 
 recreate() {
-    # Hacemos pull para asegurar la última versión de GHCR antes de recrear
-    pull_images
-    echo "=== [RECREATE] Reemplazando infra existente ==="
+    echo "=== [RECREATE] Reemplazando infra existente desde GHCR ==="
     if [ ${#TARGETS[@]} -eq 0 ]; then
         distrobox assemble create --file distrobox.ini --replace
     else
@@ -69,7 +66,7 @@ recreate() {
 }
 
 clean_images() {
-    echo "=== [CLEAN] Purgando blobs OCI huérfanos ==="
+    echo "=== [CLEAN] Purgando imágenes locales de desarrollo ==="
     podman images -q "${REGISTRY}/*" | xargs -r podman rmi -f 2>/dev/null || true
     sudo podman images -q "${REGISTRY}/*" | xargs -r sudo podman rmi -f 2>/dev/null || true
 }
