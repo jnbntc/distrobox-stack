@@ -1,7 +1,16 @@
 FROM registry.fedoraproject.org/fedora-toolbox:latest
 
-RUN rpm --import https://packages.microsoft.com/keys/microsoft.asc && \
-    curl -sSL https://packages.microsoft.com/config/rhel/8/prod.repo -o /etc/yum.repos.d/microsoft.repo && \
-    dnf install -y powershell krb5-workstation bind-utils iproute jq && \
+RUN source /etc/os-release && \
+    curl -fsSL \
+      "https://packages.microsoft.com/config/fedora/${VERSION_ID}/packages-microsoft-prod.rpm" \
+      -o /tmp/packages-microsoft-prod.rpm && \
+    rpm -Uvh /tmp/packages-microsoft-prod.rpm && \
+    rm -f /tmp/packages-microsoft-prod.rpm && \
+    dnf install -y \
+        powershell \
+        krb5-workstation \
+        bind-utils \
+        iproute \
+        jq && \
     dnf clean all && \
     rm -rf /var/cache/dnf

@@ -66,6 +66,19 @@ jobs:
       - name: Smoke test OCI image
         run: |
           case "${{ matrix.image }}" in
+            sys-ops)
+              podman run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/sys-ops:latest sh -lc '
+                set -e
+                pwsh --version
+                python3 --version
+                command -v kinit
+                command -v dig
+                command -v nslookup
+                command -v host
+                command -v ip
+                command -v jq
+              '
+              ;;
             books-ops)
               podman run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/books-ops:latest sh -lc 'command -v calibre && command -v calibredb && command -v ebook-convert && command -v tor && command -v books-tor && command -v lsusb && tor -f /etc/tor/books-ops/torrc --defaults-torrc /etc/tor/books-ops/torrc-defaults --verify-config'
               ;;
