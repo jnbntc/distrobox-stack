@@ -52,6 +52,47 @@ lsusb
 
 Para flashear por `/dev/ttyUSB*` o `/dev/ttyACM*`, el usuario del host debe tener permisos sobre el dispositivo serie; Distrobox conserva esos grupos suplementarios.
 
+### VS Code sobre iot-dev
+
+VS Code se ejecuta en el host y usa la extensión **Dev Containers** para adjuntarse al Distrobox ya existente; los repos embedded no necesitan su propio `.devcontainer/`.
+
+Flujo diario:
+
+```bash
+podman start iot-dev
+```
+
+Luego, en VS Code:
+
+1. ejecutar **Dev Containers: Attach to Running Container...**;
+2. seleccionar `iot-dev`;
+3. abrir el proyecto bajo el mismo `$HOME/Proyectos/...` compartido por Distrobox.
+
+Para que VS Code reutilice el único PlatformIO Core de `iot-dev`, abrir **Dev Containers: Open Named Configuration File**, elegir `iot-dev` y usar una configuración equivalente a:
+
+```json
+{
+  "extensions": [
+    "platformio.platformio-ide",
+    "ms-vscode.cpptools"
+  ],
+  "settings": {
+    "platformio-ide.useBuiltinPIOCore": false,
+    "platformio-ide.customPATH": "/usr/local/bin:/opt/pio/bin:/usr/bin:/bin"
+  }
+}
+```
+
+`/usr/local/bin/pio` es el wrapper canónico del workspace y mantiene el estado mutable bajo `$XDG_DATA_HOME/platformio` (o `$HOME/.local/share/platformio`).
+
+La extensión Dev Containers del host puede usar Podman como backend mediante:
+
+```json
+"dev.containers.dockerPath": "/usr/bin/podman"
+```
+
+Los Dev Containers por proyecto se reservan para casos donde el repositorio necesite un toolchain o servicios propios que no deban compartirse con un workspace persistente.
+
 ## books-ops
 
 Calibre reemplaza el antiguo `media-ops`. Darktable queda como Flatpak en el host.
