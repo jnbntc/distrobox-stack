@@ -113,7 +113,13 @@ jobs:
               '
               ;;
             sec-ops)
-              podman run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/sec-ops:latest sh -lc 'command -v openvpn && command -v pwncat-cs'
+              podman run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/sec-ops:latest sh -lc '
+                set -e
+                command -v openvpn
+                command -v pwncat-cs
+                test -x /opt/static_tools/linpeas.sh
+                test -s /opt/static_tools/winPEASx64.exe
+              '
               ;;
           esac
 
