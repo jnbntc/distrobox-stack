@@ -25,6 +25,25 @@ Stack declarativo de entornos especializados sobre Fedora Atomic usando Podman, 
 | `net-ops` | rootful | Troubleshooting L2/L3, captura, SNMP, LLDP, Scapy, iperf y herramientas de red. |
 | `sec-ops` | rootful + netns aislado | Workspace ofensivo/lab con OpenVPN, RustScan, Feroxbuster, Ligolo, pwncat y PEASS. |
 
+## iot-dev
+
+Workspace rootless para PlatformIO y microcontroladores. PlatformIO se instala en un venv dedicado bajo `/opt/pio`, separado del Python del sistema.
+
+Incluye `usbutils` y `udev` para diagnóstico de dispositivos. El manifest conserva el acceso explícito a `/dev/bus/usb` y los grupos suplementarios del usuario del host con `--group-add keep-groups`.
+
+Comandos útiles:
+
+```bash
+pio --version
+pio system info
+pio device list
+lsusb
+```
+
+`pio` y `platformio` se exportan al path por defecto de Distrobox (`$HOME/.local/bin`), por lo que después de recrear el workspace pueden invocarse también desde el host.
+
+Para flashear por `/dev/ttyUSB*` o `/dev/ttyACM*`, el usuario del host debe tener permisos sobre el dispositivo serie; Distrobox conserva esos grupos suplementarios.
+
 ## books-ops
 
 Calibre reemplaza el antiguo `media-ops`. Darktable queda como Flatpak en el host.
@@ -77,7 +96,7 @@ Build local para desarrollo:
 
 ## CI/CD
 
-`.github/workflows/ghcr-publish.yml` construye y publica semanalmente y ante cambios en Containerfiles/scripts. Además ejecuta smoke tests básicos para los workspaces críticos.
+`.github/workflows/ghcr-publish.yml` construye y publica semanalmente y ante cambios en Containerfiles/scripts. Además ejecuta smoke tests básicos para los workspaces críticos, incluyendo PlatformIO/USB en `iot-dev`.
 
 `.github/workflows/maintenance.yml` aplica una política de retención semanal:
 
