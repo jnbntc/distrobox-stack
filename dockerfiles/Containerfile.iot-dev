@@ -14,6 +14,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN python3 -m venv /opt/pio && \
     /opt/pio/bin/pip install --no-cache-dir "platformio==${PLATFORMIO_VERSION}" && \
-    ln -s /opt/pio/bin/pio /usr/local/bin/pio && \
-    ln -s /opt/pio/bin/platformio /usr/local/bin/platformio && \
-    pio --version
+    /opt/pio/bin/pio --version
+
+COPY scripts/iot-pio /usr/local/bin/pio
+RUN chmod 0755 /usr/local/bin/pio && \
+    ln -s /usr/local/bin/pio /usr/local/bin/platformio
