@@ -79,6 +79,19 @@ jobs:
                 command -v jq
               '
               ;;
+            iot-dev)
+              podman run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/iot-dev:latest sh -lc '
+                set -e
+                python3 --version
+                command -v pio
+                command -v platformio
+                command -v lsusb
+                command -v udevadm
+                pio --version | grep -F "PlatformIO Core, version 6.2.0"
+                platformio --version | grep -F "PlatformIO Core, version 6.2.0"
+                pio system info
+              '
+              ;;
             books-ops)
               podman run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/books-ops:latest sh -lc 'command -v calibre && command -v calibredb && command -v ebook-convert && command -v tor && command -v books-tor && command -v lsusb && tor -f /etc/tor/books-ops/torrc --defaults-torrc /etc/tor/books-ops/torrc-defaults --verify-config'
               ;;
