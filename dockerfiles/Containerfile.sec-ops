@@ -2,6 +2,10 @@ FROM docker.io/kalilinux/kali-rolling:latest
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+ARG PEASS_VERSION=20260929-8276191d
+ARG LINPEAS_SHA256=7c10ea156662ab657fbbfc73db5db4a391fc3b87f1ab0a08a9979cf12d715e34
+ARG WINPEAS_X64_SHA256=3e2f15010b60bbacc1b473683c9156591853ceffde651d38971722f94c47e0e7
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     python3-dev \
@@ -23,8 +27,18 @@ ENV PIPX_BIN_DIR=/usr/local/bin
 RUN pipx install pwncat-cs
 
 RUN mkdir -p /opt/static_tools && \
-    wget -qO /opt/static_tools/linpeas.sh https://github.com/peass-ng/PEASS-ng/releases/latest/download/linpeas.sh && \
-    wget -qO /opt/static_tools/winPEASx64.exe https://github.com/peass-ng/PEASS-ng/releases/latest/download/winPEASx64.exe
+    wget --https-only --tries=3 --timeout=30 \
+      -O /opt/static_tools/linpeas.sh \
+      "https://github.com/peass-ng/PEASS-ng/releases/download/${PEASS_VERSION}/linpeas.sh" && \
+    wget --https-only --tries=3 --timeout=30 \
+      -O /opt/static_tools/winPEASx64.exe \
+      "https://github.com/peass-ng/PEASS-ng/releases/download/${PEASS_VERSION}/winPEASx64.exe" && \
+    printf '%s  %s\n' "${LINPEAS_SHA256}" "/opt/static_tools/linpeas.sh" > /tmp/linpeas.sha256 && \
+    printf '%s  %s\n' "${WINPEAS_X64_SHA256}" "/opt/static_tools/winPEASx64.exe" > /tmp/winpeas.sha256 && \
+    sha256sum -c /tmp/linpeas.sha256 && \
+    sha256sum -c /tmp/winpeas.sha256 && \
+    chmod 0755 /opt/static_tools/linpeas.sh && \
+    rm -f /tmp/linpeas.sha256 /tmp/winpeas.sha256
 
 RUN git clone https://github.com/tmux-plugins/tmux-logging /opt/tmux-logging && \
     echo "run-shell /opt/tmux-logging/logging.tmux" > /etc/tmux.conf && \
