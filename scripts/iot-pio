@@ -1,0 +1,9 @@
+#!/usr/bin/env sh
+set -eu
+
+: "${PLATFORMIO_CORE_DIR:=${XDG_DATA_HOME:-$HOME/.local/share}/platformio}"
+export PLATFORMIO_CORE_DIR
+
+mkdir -p "$PLATFORMIO_CORE_DIR"
+
+exec /opt/pio/bin/pio "$@"
