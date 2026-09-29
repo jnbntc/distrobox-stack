@@ -27,11 +27,19 @@ Stack declarativo de entornos especializados sobre Fedora Atomic usando Podman, 
 
 ## iot-dev
 
-Workspace rootless para PlatformIO y microcontroladores. PlatformIO se instala en un venv dedicado bajo `/opt/pio`, separado del Python del sistema.
+Workspace rootless canónico para PlatformIO y microcontroladores. PlatformIO Core se instala en un venv inmutable bajo `/opt/pio`, separado del Python del sistema.
+
+El estado mutable de PlatformIO (platforms, packages, toolchains, cache y configuración global) **no usa** el `~/.platformio` por defecto. El wrapper de `pio` fija dinámicamente:
+
+```text
+PLATFORMIO_CORE_DIR=${XDG_DATA_HOME:-$HOME/.local/share}/platformio
+```
+
+Esto evita mezclar paquetes creados por antiguos Dev Containers con el workspace Distrobox y garantiza que el estado global sea escribible por el UID real del usuario.
 
 Incluye `usbutils` y `udev` para diagnóstico de dispositivos. El manifest conserva el acceso explícito a `/dev/bus/usb` y los grupos suplementarios del usuario del host con `--group-add keep-groups`.
 
-Comandos útiles:
+Comandos útiles dentro de `iot-dev`:
 
 ```bash
 pio --version
@@ -40,7 +48,7 @@ pio device list
 lsusb
 ```
 
-`pio` y `platformio` se exportan al path por defecto de Distrobox (`$HOME/.local/bin`), por lo que después de recrear el workspace pueden invocarse también desde el host.
+`pio` y `platformio` **no se exportan al host**: `iot-dev` es la única instalación canónica de PlatformIO Core.
 
 Para flashear por `/dev/ttyUSB*` o `/dev/ttyACM*`, el usuario del host debe tener permisos sobre el dispositivo serie; Distrobox conserva esos grupos suplementarios.
 
