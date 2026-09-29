@@ -89,7 +89,12 @@ jobs:
                 command -v udevadm
                 pio --version | grep -F "PlatformIO Core, version 6.2.0"
                 platformio --version | grep -F "PlatformIO Core, version 6.2.0"
+                export HOME=/tmp/iot-user
+                export XDG_DATA_HOME=/tmp/iot-xdg
+                mkdir -p "$HOME" "$XDG_DATA_HOME"
                 pio system info
+                test -d "$XDG_DATA_HOME/platformio"
+                test ! -e "$HOME/.platformio"
               '
               ;;
             books-ops)
