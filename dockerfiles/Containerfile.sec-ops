@@ -27,7 +27,7 @@ ENV PIPX_BIN_DIR=/usr/local/bin
 RUN pipx install pwncat-cs
 
 RUN mkdir -p /opt/static_tools && \
-    wget --https-only --tries=3 --timeout=30 \
+    wget --no-verbose --https-only --tries=3 --timeout=30 \
       -O /opt/static_tools/linpeas.sh \
       "https://github.com/peass-ng/PEASS-ng/releases/download/${PEASS_VERSION}/linpeas.sh" && \
     wget --https-only --tries=3 --timeout=30 \
