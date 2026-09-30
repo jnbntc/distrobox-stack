@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
-ROOTLESS_IMAGES=("ia-dev" "iot-dev" "books-ops" "sys-ops" "re-ops" "gns3-client")
+ROOTLESS_IMAGES=("ia-dev" "iot-dev" "android-ops" "books-ops" "sys-ops" "re-ops" "gns3-client")
 ROOTFUL_IMAGES=("net-ops" "sec-ops")
 REGISTRY="localhost/custom"
 REMOTE_REGISTRY="ghcr.io/jnbntc"
