@@ -118,11 +118,23 @@ jobs:
 
           endpoint="/users/${GITHUB_REPOSITORY_OWNER}/packages/container/${PACKAGE}/versions?per_page=100"
 
-          versions="$(
+          error_file="$(mktemp)"
+          if ! versions="$(
             gh api \
               -H "X-GitHub-Api-Version: 2026-03-10" \
-              "$endpoint"
-          )"
+              "$endpoint" 2>"$error_file"
+          )"; then
+            if grep -Fq "Package not found" "$error_file"; then
+              echo "::notice title=GHCR package not ready::${PACKAGE} does not exist yet; nothing to prune."
+              rm -f "$error_file"
+              exit 0
+            fi
+
+            cat "$error_file" >&2
+            rm -f "$error_file"
+            exit 1
+          fi
+          rm -f "$error_file"
 
           version_count="$(jq 'length' <<<"$versions")"
           echo "==> ${PACKAGE}: ${version_count} versiones"
