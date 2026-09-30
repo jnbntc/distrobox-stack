@@ -1,6 +1,25 @@
 # Distrobox Stack — Declarative OCI Workspaces for Fedora Atomic
 
+<p>
+  <img src="https://img.shields.io/badge/Fedora-Atomic-51A2DA?style=flat-square&logo=fedora&logoColor=white" alt="Fedora Atomic" />
+  <img src="https://img.shields.io/badge/Podman-OCI-892CA0?style=flat-square&logo=podman&logoColor=white" alt="Podman" />
+  <img src="https://img.shields.io/badge/Distrobox-Workspaces-333333?style=flat-square" alt="Distrobox" />
+  <img src="https://img.shields.io/badge/GHCR-Images-333333?style=flat-square&logo=github&logoColor=white" alt="GHCR" />
+</p>
+
 Stack declarativo de entornos especializados sobre Fedora Atomic usando Podman, Distrobox y GHCR. El host queda orientado a Flatpak para aplicaciones de escritorio y los toolchains técnicos viven en contenedores reproducibles.
+
+> **Idea central:** mantener el host pequeño y predecible, y mover los toolchains técnicos a workspaces OCI reproducibles con privilegios explícitos según cada caso.
+
+```mermaid
+flowchart LR
+    A[Fedora Atomic host] --> B[Flatpak desktop apps]
+    A --> C[Distrobox rootless]
+    A --> D[Distrobox rootful]
+    E[GitHub Actions] --> F[GHCR]
+    F --> C
+    F --> D
+```
 
 ## Arquitectura
 
