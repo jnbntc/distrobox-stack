@@ -11,14 +11,13 @@ Stack declarativo de entornos especializados sobre Fedora Atomic usando Podman, 
 
 > **Idea central:** mantener el host pequeño y predecible, y mover los toolchains técnicos a workspaces OCI reproducibles con privilegios explícitos según cada caso.
 
-```mermaid
-flowchart LR
-    A[Fedora Atomic host] --> B[Flatpak desktop apps]
-    A --> C[Distrobox rootless]
-    A --> D[Distrobox rootful]
-    E[GitHub Actions] --> F[GHCR]
-    F --> C
-    F --> D
+```text
+GitHub Actions → GHCR → Distrobox workspaces
+                         ├─ rootless
+Fedora Atomic host ──────┤
+                         └─ rootful
+
+Desktop apps → Flatpak
 ```
 
 ## Arquitectura
