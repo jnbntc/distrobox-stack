@@ -1,0 +1,12 @@
+FROM registry.fedoraproject.org/fedora-toolbox:44
+
+RUN dnf install -y \
+        android-tools \
+        jq \
+        usbutils && \
+    adb version && \
+    fastboot --version && \
+    dnf clean all && \
+    rm -rf /var/cache/dnf
+
+CMD ["/bin/bash"]

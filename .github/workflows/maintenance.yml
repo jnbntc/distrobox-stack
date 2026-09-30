@@ -71,6 +71,7 @@ jobs:
         package:
           - sys-ops
           - iot-dev
+          - android-ops
           - ia-dev
           - books-ops
           - gns3-client

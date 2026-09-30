@@ -23,7 +23,7 @@ Desktop apps → Flatpak
 ## Arquitectura
 
 - **Flatpak**: aplicaciones gráficas de escritorio, por ejemplo Darktable.
-- **Distrobox rootless**: sys-ops, iot-dev, ia-dev, books-ops, gns3-client y re-ops.
+- **Distrobox rootless**: sys-ops, iot-dev, android-ops, ia-dev, books-ops, gns3-client y re-ops.
 - **Distrobox rootful**: net-ops y sec-ops cuando el workflow necesita acceso privilegiado a red/dispositivos.
 - **GHCR**: publica las imágenes construidas por GitHub Actions.
 - **NVMe secundario**: Podman usa graphroot bajo `/var/mnt/storage`.
@@ -36,6 +36,7 @@ Desktop apps → Flatpak
 | --- | --- | --- |
 | `sys-ops` | rootless | PowerShell, Kerberos, DNS y administración general. |
 | `iot-dev` | rootless + USB | PlatformIO y desarrollo/flasheo de microcontroladores. |
+| `android-ops` | rootless + USB | ADB/Fastboot, inventario y mantenimiento de dispositivos Android. |
 | `ia-dev` | rootless + DRI | Python/uv, Aider e Intel OpenCL/Level Zero. |
 | `books-ops` | rootless + USB | Calibre, gestión/conversión de ebooks, Kindle por USB, Tor/torsocks y utilidades de descarga. |
 | `gns3-client` | rootless | Cliente GNS3 y Wireshark integrado al escritorio. |
@@ -111,6 +112,33 @@ La extensión Dev Containers del host puede usar Podman como backend mediante:
 
 Los Dev Containers por proyecto se reservan para casos donde el repositorio necesite un toolchain o servicios propios que no deban compartirse con un workspace persistente.
 
+## android-ops
+
+Workspace rootless dedicado a administración y diagnóstico de dispositivos Android por USB. Usa el paquete `android-tools` de Fedora, que aporta `adb` y `fastboot`, además de `usbutils` y `jq` para inventario y scripts de auditoría.
+
+El acceso USB sigue el mismo patrón que `iot-dev` y `books-ops`:
+
+```ini
+additional_flags="--device /dev/bus/usb:/dev/bus/usb:rwm --group-add keep-groups"
+```
+
+Flujo básico:
+
+```bash
+./scripts/stack.sh pull android-ops
+./scripts/stack.sh deploy android-ops
+distrobox enter android-ops
+
+adb version
+fastboot --version
+lsusb
+adb devices
+```
+
+Para que ADB vea un teléfono real, la depuración USB debe estar habilitada y autorizada en Android, y el usuario del host debe tener permisos sobre el dispositivo USB. Las reglas/permisos udev pertenecen al host, no a la imagen OCI.
+
+El workspace se usa para auditoría y mantenimiento; no exporta `adb` ni `fastboot` al host.
+
 ## books-ops
 
 Calibre reemplaza el antiguo `media-ops`. Darktable queda como Flatpak en el host.
@@ -163,7 +191,7 @@ Build local para desarrollo:
 
 ## CI/CD
 
-`.github/workflows/ghcr-publish.yml` construye y publica semanalmente y ante cambios en Containerfiles/scripts. Además ejecuta smoke tests básicos para los workspaces críticos, incluyendo PlatformIO/USB en `iot-dev`.
+`.github/workflows/ghcr-publish.yml` construye y publica semanalmente y ante cambios en Containerfiles/scripts. Además ejecuta smoke tests básicos para los workspaces críticos, incluyendo PlatformIO/USB en `iot-dev` y ADB/Fastboot en `android-ops`.
 
 `.github/workflows/maintenance.yml` aplica una política de retención semanal:
 
