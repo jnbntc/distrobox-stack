@@ -31,6 +31,8 @@ jobs:
             context: rootless
           - image: iot-dev
             context: rootless
+          - image: android-ops
+            context: rootless
           - image: ia-dev
             context: rootless
           - image: books-ops
@@ -95,6 +97,17 @@ jobs:
                 pio system info
                 test -d "$XDG_DATA_HOME/platformio"
                 test ! -e "$HOME/.platformio"
+              '
+              ;;
+            android-ops)
+              podman run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/android-ops:latest sh -lc '
+                set -e
+                command -v adb
+                command -v fastboot
+                command -v lsusb
+                command -v jq
+                adb version
+                fastboot --version
               '
               ;;
             books-ops)
