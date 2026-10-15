@@ -304,7 +304,7 @@ con evidencia, sin cambiar políticas ni añadir flags como solución automátic
 El HOME está en la capa temporal y desaparece al finalizar. El `iot-dev` existente
 continúa usando su imagen anterior; volver a él es el rollback de la evaluación.
 
-**Límite de Distrobox:** el `/usr/bin/distrobox-create` inspeccionado en el entorno
+**Límite de Distrobox 1.8.2.5:** el `/usr/bin/distrobox-create` inspeccionado en el entorno
 local agrega internamente `--privileged` y desactiva el etiquetado del contenedor,
 incluso en modo rootless. Esto entra en conflicto con la restricción de esta tarea.
 Por eso no se crea una nueva Distrobox ni se ofrece ese flujo como una prueba sin
@@ -331,6 +331,27 @@ tamaño; el orden de capas permite reutilizar APT/PlatformIO con `podman build
 --layers` localmente. Si la medición justifica caché en runners efímeros, evaluar
 un cache OCI con `--cache-from/--cache-to` en un PR separado; no se altera la
 retención ni se publican imágenes de prueba en este cambio.
+
+Validación ejecutada el **15 de octubre de 2026**, sobre el código del commit
+`5ccc2a7`, en [GitHub Actions](https://github.com/jnbntc/distrobox-stack/actions/runs/38677329341):
+build OCI correcto (149 s), smoke test y compilación ESP32-S3 correctos (35 s),
+PlatformIO 6.2.0 correcto y ELF Xtensa verificado. CMake 3.25.1 y Ninja 1.11.1.
+El job completo duró 3 min 27 s. Mediciones sin comprimir:
+
+| Imagen | Bytes OCI | Aproximación binaria |
+| --- | ---: | ---: |
+| Base del PR reconstruida | 287756518 | 274.43 MiB |
+| Con ESP-IDF | 4852288162 | 4.519 GiB |
+| Incremento | 4564531644 | 4.251 GiB |
+
+`du -sh` dentro de la imagen: `/opt/esp` 4.1G y `/opt/pio` 44M. Es un incremento
+considerable que debe aceptarse antes del despliegue. Se conservan las herramientas
+requeridas del manifiesto oficial para evitar recortar soporte ULP/depuración.
+La caché de capas mejora las reconstrucciones, pero no reduce el tamaño descargado.
+Una imagen especializada sólo para compilar, sin GDB/OpenOCD/ROM ELF, sería una
+alternativa separada con menor funcionalidad; no reemplaza el entorno completo aquí.
+Localmente el build se intentó y quedó bloqueado por el sandbox (`newuidmap`);
+no se ejecutaron inicialización Distrobox, hotplug, flasheo ni monitor físico.
 
 Para actualizar dependencias Python, hacerlo en un contenedor Bookworm temporal:
 usar `uv 0.13.1 pip compile /opt/esp/idf/tools/requirements/requirements.core.txt`
