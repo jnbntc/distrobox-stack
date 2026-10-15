@@ -35,7 +35,7 @@ Desktop apps → Flatpak
 | Contenedor | Contexto | Propósito |
 | --- | --- | --- |
 | `sys-ops` | rootless | PowerShell, Kerberos, DNS y administración general. |
-| `iot-dev` | rootless + USB | PlatformIO y desarrollo/flasheo de microcontroladores. |
+| `iot-dev` | rootless + USB | PlatformIO y ESP-IDF nativo para ESP32-S3. |
 | `android-ops` | rootless + USB | ADB/Fastboot, inventario y mantenimiento de dispositivos Android. |
 | `ia-dev` | rootless + DRI | Python/uv, Aider e Intel OpenCL/Level Zero. |
 | `books-ops` | rootless + USB | Calibre, gestión/conversión de ebooks, Kindle por USB, Tor/torsocks y utilidades de descarga. |
@@ -111,6 +111,248 @@ La extensión Dev Containers del host puede usar Podman como backend mediante:
 ```
 
 Los Dev Containers por proyecto se reservan para casos donde el repositorio necesite un toolchain o servicios propios que no deban compartirse con un workspace persistente.
+
+### ESP-IDF nativo para InfraBadge
+
+`iot-dev` conserva **PlatformIO Core 6.2.0** y agrega **ESP-IDF v5.5.5**, commit
+`b774170ff46c393eeb5e495ea37936038d3f4f4f`. Esta versión estable de mantenimiento
+de 5.5 incluye correcciones posteriores a 5.5.0 y cumple el mínimo de Waveshare.
+La selección se verificó el 15 de octubre de 2026:
+[release de Espressif](https://github.com/espressif/esp-idf/releases/tag/v5.5.5) y
+[requisito de Waveshare](https://docs.waveshare.com/ESP32-S3-ePaper-1.54/ESP-IDF).
+
+| Parte | Ubicación / estado |
+| --- | --- |
+| PlatformIO Core y su Python | `/opt/pio`, wrapper existente sin cambios |
+| Paquetes y configuración PlatformIO | `${XDG_DATA_HOME:-$HOME/.local/share}/platformio`, persistente |
+| SDK ESP-IDF | `/opt/esp/idf`, release y commit verificados durante build |
+| Herramientas ESP-IDF | `/opt/esp/tools`, versiones y SHA-256 de `tools/tools.json` del commit |
+| Python de ESP-IDF | `/opt/esp/python`, independiente del sistema y de `/opt/pio` |
+| Dependencias Python ESP-IDF | `dockerfiles/esp-idf/*.lock`, versiones y hashes; constraints oficiales guardados |
+| Estado de proyecto | `sdkconfig`, `dependencies.lock`, `managed_components/`, `build/` dentro del proyecto |
+| Caché opcional de compilación | `CCACHE_DIR` escribible del usuario, nunca dentro de `/opt/esp` |
+
+Se instalan sólo las herramientas requeridas para `esp32s3`, incluyendo Xtensa
+para las CPU principales y RISC-V/esp32ulp para el coprocesador ULP. No se instala
+QEMU, Clang ni toolchains de otros targets por conveniencia. CMake, Ninja, GCC/G++,
+Make, Bison, Flex, Gperf, ccache, libffi/libssl de desarrollo, libusb, libpython3.11
+y xz provienen de Bookworm. GDB y OpenOCD provienen del manifiesto del SDK.
+
+La imagen base Bookworm Slim está fijada por digest. El SDK usa un clon superficial,
+submódulos fijados por el commit y verificación de hashes de las descargas. Los
+archivos descargados de herramientas y cachés pip se eliminan en la misma capa.
+Se conserva Git para que `idf.py --version` y el build detecten la release; sólo
+`/opt/esp/idf` se autoriza como `safe.directory` para usuarios distintos de root.
+APT sigue usando los repositorios de Bookworm y PlatformIO conserva su resolución
+original de dependencias transitivas: **no se promete una imagen idéntica byte a
+byte** entre fechas. Para desplegar exactamente una imagen probada, usar su digest
+OCI; actualizar los pins mediante PR, no ejecutar `install.sh` dentro del workspace.
+
+#### Activación y compilación
+
+Desde Bash, Zsh u otro shell, dentro del nuevo contenedor:
+
+```bash
+idf-env                         # abre Bash con ESP-IDF; salir con exit
+idf.py --version                 # ESP-IDF v5.5.5
+cd /ruta/al/proyecto-idf
+idf.py set-target esp32s3        # puede regenerar sdkconfig y limpiar el build
+idf.py build
+```
+
+También se puede activar por comando, sin modificar el shell padre:
+
+```bash
+idf-env idf.py --version
+idf-env idf.py set-target esp32s3
+idf-env idf.py build
+idf-env xtensa-esp-elf-gcc --version
+```
+
+`idf-env` usa la activación oficial y propaga sus errores. Abre un Bash sin cargar
+archivos de inicio del usuario, o ejecuta el comando recibido. No escribe en
+`.bashrc`, `.zshrc` ni archivos globales. Para activar el shell actual Bash/Zsh,
+se puede ejecutar `. /opt/esp/idf/export.sh`; la imagen ya define las tres rutas
+`IDF_*`. No activar el venv de PlatformIO sobre el de ESP-IDF. El wrapper `pio`
+continúa ejecutando `/opt/pio/bin/pio`, incluso dentro de `idf-env`.
+
+PlatformIO administra plataformas y frameworks mediante `platformio.ini` y `pio
+run`. ESP-IDF nativo usa CMake, `sdkconfig`, `idf.py` y su Component Manager. El
+ESP-IDF instalado aquí no reemplaza el framework descargado por PlatformIO. En
+cada proyecto IDF, guardar `dependencies.lock` y las versiones de componentes
+para que la reproducibilidad del firmware no dependa sólo de la imagen.
+
+#### USB Serial/JTAG y monitor
+
+Los siguientes comandos se documentan para un proyecto autorizado para flasheo.
+**La preparación de este entorno no requiere ejecutarlos sobre la placa.**
+
+```bash
+ls -l /dev/serial/by-id/          # elegir el enlace de la placa, si existe
+PORT=/dev/serial/by-id/ENLACE_REAL_DE_LA_PLACA
+test -r "$PORT" && test -w "$PORT"
+idf-env idf.py -p "$PORT" flash
+idf-env idf.py -p "$PORT" monitor  # salir con Ctrl+]
+```
+
+Si no existe `by-id`, resolver el puerto con `pio device list` y `udevadm info` y
+usar el `/dev/ttyACM*` actual. No fijar `/dev/ttyACM0` en el manifest. Distrobox
+comparte `/dev` por defecto si no se usa `--unshare-devsys`; el bind del directorio
+permite ver nodos nuevos tras reconexiones. `/dev/bus/usb` por sí solo no equivale
+al acceso a un puerto TTY en un contenedor Podman genérico. `--group-add keep-groups`
+conserva los grupos efectivos del host y requiere el runtime **crun**.
+
+Diagnóstico, primero en el host y luego en el contenedor temporal:
+
+```bash
+id
+lsusb
+ls -l /dev/serial/by-id/ /dev/ttyACM*
+udevadm info --query=property --name=/dev/ttyACM0
+test -r /dev/ttyACM0 && test -w /dev/ttyACM0
+# En el host:
+podman info --format '{{.Host.OCIRuntime.Name}}'
+podman inspect NOMBRE_DE_INSTANCIA_TEMPORAL --format '{{json .Mounts}}'
+```
+
+Comparar presencia, destino del enlace y permisos efectivos; los nombres de grupos
+dentro del contenedor pueden diferir aunque el acceso heredado funcione. Cerrar
+otros monitores antes de usar el puerto. Si desaparece, reconectar y redescubrirlo.
+Si el host no tiene acceso, los paquetes udev de la imagen no corrigen sus ACL o
+grupos. Si hay un rechazo SELinux, recopilar el AVC del host antes de proponer un
+cambio: esta configuración no modifica políticas, reglas udev ni usa privilegios
+adicionales para resolver permisos. Un monitor también puede abrir el puerto y
+alterar señales de reset; no forma parte de los tests automáticos.
+
+#### VS Code y ESP-IDF
+
+Adjuntar Dev Containers a una instancia Podman temporal durante la evaluación;
+para persistir el trabajo, montar sólo el directorio del proyecto autorizado. Mantener
+la configuración de PlatformIO anterior y agregar este perfil de terminal a la
+configuración nombrada del contenedor:
+
+```json
+{
+  "terminal.integrated.profiles.linux": {
+    "ESP-IDF 5.5.5": { "path": "/usr/local/bin/idf-env" }
+  }
+}
+```
+
+Abrir el proyecto y seleccionar ese perfil para `idf.py`. Las tasks pueden invocar
+`/usr/local/bin/idf-env` con argumentos `idf.py`, `build`. Esta ruta no requiere que
+una extensión descargue otro SDK. Si se usa la extensión Espressif, seleccionar
+la instalación existente `/opt/esp/idf`, herramientas `/opt/esp` y Python
+`/opt/esp/python/bin/python`; no usar su instalación automática. Para IntelliSense,
+usar el `build/compile_commands.json` producido por CMake.
+
+#### Waveshare ESP32-S3-ePaper-1.54 V2
+
+La placa **V2** usa ESP32-S3-PICO-1-N8R8 (8 MB Flash y 8 MB PSRAM), pantalla
+monocromática 200 × 200 y USB Serial/JTAG. Los ejemplos de V1 y V2 no son
+intercambiables, según [Waveshare](https://docs.waveshare.com/ESP32-S3-ePaper-1.54).
+Consultar los ejemplos y esquemas **V2** del
+[repositorio oficial](https://github.com/waveshareteam/ESP32-S3-ePaper-1.54).
+
+Esta integración sólo compila `hello_world` para `esp32s3`: no define GPIOs, modo
+de PSRAM, particiones, alimentación de pantalla ni configuración de periféricos.
+Estos parámetros deben derivarse del esquema y ejemplo V2 antes de implementar
+InfraBadge. El tamaño de Flash y el modo de PSRAM deben configurarse explícitamente
+en el futuro proyecto; el smoke test no certifica un firmware listo para la placa.
+No se lee ni se incorpora a Git el backup privado de fábrica. No se flashea, borra
+Flash, modifica eFuses ni habilita Secure Boot/Flash Encryption en esta tarea.
+
+#### Reconstrucción, evaluación y rollback
+
+Construir con un tag separado, desde la raíz del repositorio:
+
+```bash
+podman build -t localhost/custom/iot-dev:esp-idf-5.5.5 \
+  -f dockerfiles/Containerfile.iot-dev .
+podman run --rm -i --user 1000:1000 --network none --cap-drop all \
+  --security-opt no-new-privileges localhost/custom/iot-dev:esp-idf-5.5.5 \
+  bash -s < tests/iot-smoke.sh
+podman image inspect --format '{{.Size}}' localhost/custom/iot-dev:esp-idf-5.5.5
+```
+
+El smoke test usa un HOME temporal, compila realmente el ejemplo `hello_world`
+con FreeRTOS para ESP32-S3 y verifica el ELF Xtensa y los binarios. Comprueba
+PlatformIO antes, durante y después de activar IDF, incluyendo `system info`,
+`device list` y `pkg list -g`. La enumeración vacía es válida en CI; no demuestra
+acceso a una placa real. El build del ejemplo se ejecuta **sin red ni USB y como
+UID 1000**, con `/opt/pio` y `/opt/esp` no escribibles para ese UID.
+
+Para evaluar USB sin afectar `iot-dev`, usar Podman rootless directamente con
+un puerto resuelto en el momento. No usar `stack.sh deploy/recreate iot-dev`
+durante la prueba (`replace=true` en el manifest):
+
+```bash
+PORT=$(readlink -f /dev/serial/by-id/ENLACE_REAL_DE_LA_PLACA)
+test -c "$PORT" && test -r "$PORT" && test -w "$PORT"
+podman run --rm --userns keep-id --group-add keep-groups \
+  --device "$PORT:/dev/infrabadge" --device /dev/bus/usb \
+  --network none --cap-drop all --security-opt no-new-privileges \
+  --env HOME=/tmp/iot-idf-user localhost/custom/iot-dev:esp-idf-5.5.5 \
+  bash -ec 'mkdir -p "$HOME"; test -r /dev/infrabadge; test -w /dev/infrabadge;
+            idf-env idf.py --version; pio device list'
+```
+
+Esto sólo comprueba visibilidad/permisos y herramientas; no abre el puerto ni
+flashea. Podman resuelve el nodo al crear la instancia: tras reconexión, redescubrir
+el puerto y ejecutar otra instancia temporal. Un rechazo SELinux debe investigarse
+con evidencia, sin cambiar políticas ni añadir flags como solución automática.
+El HOME está en la capa temporal y desaparece al finalizar. El `iot-dev` existente
+continúa usando su imagen anterior; volver a él es el rollback de la evaluación.
+
+**Límite de Distrobox:** el `/usr/bin/distrobox-create` inspeccionado en el entorno
+local agrega internamente `--privileged` y desactiva el etiquetado del contenedor,
+incluso en modo rootless. Esto entra en conflicto con la restricción de esta tarea.
+Por eso no se crea una nueva Distrobox ni se ofrece ese flujo como una prueba sin
+privilegios. El manifest se conserva, sin ampliar sus flags, para el entorno
+existente. La inicialización/recreación Distrobox requiere resolver explícitamente
+esa decisión; no se certifica su cumplimiento por el solo hecho de usar rootless.
+
+Después de revisar/mergear el PR y obtener una publicación validada, registrar
+el ID/digest de la imagen anterior y protegerlo con un tag local antes de una
+recreación expresamente programada. Guardar el estado del proyecto y no borrar
+`~/.local/share/platformio`. Probar primero la nueva imagen por digest con Podman;
+una futura recreación Distrobox queda condicionada a la decisión anterior. Si se
+habilita ese despliegue, actualizar sólo `image=` de `[iot-dev]` al digest probado
+y recrear únicamente ese workspace. Para volver atrás, usar el digest/tag guardado
+y reutilizar el estado persistente. Los tags locales de build no son los tags GHCR
+que consume `stack.sh`. No se ejecuta despliegue ni merge durante esta integración.
+
+ESP-IDF agrega un SDK y compiladores de tamaño considerable. El workflow
+`iot-dev-test.yml` mide bytes OCI sin comprimir de candidato y baseline reconstruido
+desde la base del PR, duración del build y ocupación de `/opt/esp`/`/opt/pio`. No
+confundir esas cifras con descarga comprimida ni espacio exclusivo en disco.
+El clon superficial, selección de target y limpieza en la misma capa reducen
+tamaño; el orden de capas permite reutilizar APT/PlatformIO con `podman build
+--layers` localmente. Si la medición justifica caché en runners efímeros, evaluar
+un cache OCI con `--cache-from/--cache-to` en un PR separado; no se altera la
+retención ni se publican imágenes de prueba en este cambio.
+
+Para actualizar dependencias Python, hacerlo en un contenedor Bookworm temporal:
+usar `uv 0.13.1 pip compile /opt/esp/idf/tools/requirements/requirements.core.txt`
+con un archivo de entrada que agregue `pip` y `wheel`, la snapshot de constraints,
+`--python-version 3.11 --python-platform x86_64-manylinux_2_28 --generate-hashes
+--no-emit-index-url --no-header --no-annotate`. Guardar en `requirements.lock` y
+extraer los bloques completos de `pip`, `setuptools`, `wheel` y `packaging` a `bootstrap.lock`.
+Revisar el diff y volver a compilar: el bootstrap fijado permite construir sdists
+como esptool con `--no-build-isolation`, sin resolver herramientas de build móviles.
+La snapshot de constraints proviene de
+`https://dl.espressif.com/dl/esp-idf/espidf.constraints.v5.5.txt`, obtenida el
+15 de octubre de 2026, SHA-256
+`4839993120d0bdf9757504d402d1a18287e76758cb28d311abc64f2503d11977`.
+
+Problemas comunes: si falla la activación, verificar rutas y `idf-env python -m pip
+check`; si se mezclaron SDK/targets, regenerar únicamente el directorio de build
+del proyecto y revisar `sdkconfig` antes de `set-target`; si `/opt/esp` no permite
+escritura, reconstruir la imagen en lugar de instalar como usuario; si falla una
+descarga por hash, investigar el origen y revisar el pin en un PR, nunca omitir
+la verificación. Un fallo `newuidmap: Operation not permitted` dentro de un sandbox
+no diagnostica el Podman del host: ejecutar el build autorizado desde una terminal
+normal o usar el CI.
 
 ## android-ops
 
@@ -192,6 +434,11 @@ Build local para desarrollo:
 ## CI/CD
 
 `.github/workflows/ghcr-publish.yml` construye y publica semanalmente y ante cambios en Containerfiles/scripts. Además ejecuta smoke tests básicos para los workspaces críticos, incluyendo PlatformIO/USB en `iot-dev` y ADB/Fastboot en `android-ops`.
+
+`iot-dev` ejecuta además el smoke test offline completo anterior antes de publicar.
+`.github/workflows/iot-dev-test.yml` construye sólo `iot-dev` en los PR relevantes,
+sin autenticación GHCR ni permisos de publicación, y mide el incremento de tamaño.
+Las pruebas físicas USB y la inicialización Distrobox se mantienen separadas del CI.
 
 `.github/workflows/maintenance.yml` aplica una política de retención semanal:
 

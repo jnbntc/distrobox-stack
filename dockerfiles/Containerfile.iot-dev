@@ -1,15 +1,38 @@
-FROM debian:bookworm-slim
+FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
 
 ENV DEBIAN_FRONTEND=noninteractive
 ARG PLATFORMIO_VERSION=6.2.0
 
+# Keep the release name AND immutable commit: fail if the upstream tag moves.
+ARG ESP_IDF_VERSION=v5.5.5
+ARG ESP_IDF_COMMIT=b774170ff46c393eeb5e495ea37936038d3f4f4f
+
+ENV IDF_PATH=/opt/esp/idf \
+    IDF_TOOLS_PATH=/opt/esp \
+    IDF_PYTHON_ENV_PATH=/opt/esp/python
+
+LABEL io.espressif.esp-idf.version="${ESP_IDF_VERSION}" \
+      io.espressif.esp-idf.commit="${ESP_IDF_COMMIT}"
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
+        bison \
+        build-essential \
+        ccache \
+        cmake \
+        flex \
         git \
+        gperf \
+        libffi-dev \
+        libssl-dev \
+        libusb-1.0-0 \
+        libpython3.11 \
+        ninja-build \
         python3 \
         python3-venv \
         udev \
         usbutils \
+        xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
 RUN python3 -m venv /opt/pio && \
@@ -19,3 +42,25 @@ RUN python3 -m venv /opt/pio && \
 COPY scripts/iot-pio /usr/local/bin/pio
 RUN chmod 0755 /usr/local/bin/pio && \
     ln -s /usr/local/bin/pio /usr/local/bin/platformio
+
+COPY dockerfiles/esp-idf/ /opt/esp/locks/
+RUN git clone --branch "${ESP_IDF_VERSION}" --depth 1 \
+        https://github.com/espressif/esp-idf.git "${IDF_PATH}" && \
+    test "$(git -C "${IDF_PATH}" rev-parse HEAD)" = "${ESP_IDF_COMMIT}" && \
+    git -C "${IDF_PATH}" submodule update --init --recursive --depth 1 && \
+    git config --system --add safe.directory "${IDF_PATH}" && \
+    python3 "${IDF_PATH}/tools/idf_tools.py" --non-interactive install --targets=esp32s3 && \
+    python3 -m venv "${IDF_PYTHON_ENV_PATH}" && \
+    "${IDF_PYTHON_ENV_PATH}/bin/pip" install --no-cache-dir --require-hashes \
+        -r /opt/esp/locks/bootstrap.lock && \
+    "${IDF_PYTHON_ENV_PATH}/bin/pip" install --no-cache-dir --require-hashes --no-build-isolation \
+        -r /opt/esp/locks/requirements.lock && \
+    cp /opt/esp/locks/espidf.constraints.v5.5.txt "${IDF_TOOLS_PATH}/" && \
+    "${IDF_PYTHON_ENV_PATH}/bin/python" "${IDF_PATH}/tools/idf_tools.py" check-python-dependencies && \
+    "${IDF_PYTHON_ENV_PATH}/bin/pip" check && \
+    rm -rf "${IDF_TOOLS_PATH}/dist" && \
+    chmod -R a+rX /opt/esp
+
+COPY scripts/idf-env /usr/local/bin/idf-env
+RUN chmod 0755 /usr/local/bin/idf-env && \
+    idf-env idf.py --version

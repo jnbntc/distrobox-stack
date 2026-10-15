@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -eo pipefail
+
+# Activation is scoped to this process. Never edit the shared user's shell files.
+export IDF_PATH=/opt/esp/idf
+export IDF_TOOLS_PATH=/opt/esp
+export IDF_PYTHON_ENV_PATH=/opt/esp/python
+unset PYTHONHOME PYTHONPATH VIRTUAL_ENV ESP_IDF_LEGACY_EXPORT
+export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
+
+# Use the official activation engine, but propagate its failure before eval.
+# export.sh itself ends with return 0 even when activate.py fails.
+idf_exports="$(/usr/bin/python3 "$IDF_PATH/tools/activate.py" --export --shell bash)"
+eval "$idf_exports" >/dev/null
+
+if [ "$#" -eq 0 ]; then
+    exec /bin/bash --noprofile --norc -i
+fi
+exec "$@"
