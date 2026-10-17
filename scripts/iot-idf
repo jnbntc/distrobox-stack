@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Host launcher: native ESP-IDF over the TTY, without raw USB/JTAG access.
+image=${IDF_IMAGE:-localhost/custom/iot-dev:esp-idf-5.5.5}
+volume=${IDF_WORKSPACE_VOLUME:-infrabadge-esp-idf-workspace}
+name="infrabadge-idf-$$"
+
+if [[ ! "$volume" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]]; then
+    echo 'IDF_WORKSPACE_VOLUME debe ser un nombre de volumen, no una ruta del host.' >&2
+    exit 1
+fi
+
+if [ "$(id -u)" -eq 0 ]; then
+    echo 'Ejecutar como usuario normal, sin sudo.' >&2
+    exit 1
+fi
+if [ "$(podman info --format '{{.Host.Security.Rootless}} {{.Host.OCIRuntime.Name}}')" != 'true crun' ]; then
+    echo 'Se requiere Podman rootless con crun.' >&2
+    exit 1
+fi
+podman image exists "$image" || {
+    echo "Imagen local no disponible: $image. Definir IDF_IMAGE o construirla primero." >&2
+    exit 1
+}
+
+if [ -n "${IDF_PORT:-}" ]; then
+    port=$(readlink -f -- "$IDF_PORT")
+else
+    port=$(python3 - <<'PY'
+from pathlib import Path
+import sys
+
+ports = []
+for tty in sorted(Path('/sys/class/tty').glob('ttyACM*')):
+    source = (tty / 'device').resolve()
+    for parent in (source, *source.parents):
+        try:
+            vid = (parent / 'idVendor').read_text().strip()
+            pid = (parent / 'idProduct').read_text().strip()
+        except OSError:
+            continue
+        if (vid, pid) == ('303a', '1001'):
+            ports.append('/dev/' + tty.name)
+        break
+if len(ports) != 1:
+    sys.exit('Conectar una sola placa Espressif USB Serial/JTAG, o definir IDF_PORT.')
+print(ports[0])
+PY
+    )
+fi
+if [ ! -c "$port" ] || [ ! -r "$port" ] || [ ! -w "$port" ]; then
+    echo "Puerto serie no accesible: $port" >&2
+    exit 1
+fi
+
+terminal_flags=(--interactive)
+if [ -t 0 ] && [ -t 1 ]; then
+    terminal_flags+=(--tty)
+fi
+printf 'ESP-IDF: %s\nPuerto: %s -> /dev/infrabadge\nWorkspace persistente: %s\nContenedor: %s\n' \
+    "$image" "$port" "$volume" "$name"
+
+# The named volume is managed by Podman; no host project/HOME is relabeled.
+exec podman run --rm "${terminal_flags[@]}" --name "$name" --pull never \
+    --userns keep-id --user "$(id -u):$(id -g)" --group-add keep-groups \
+    --cap-drop all --security-opt no-new-privileges \
+    --device "$port:/dev/infrabadge" \
+    --volume "$volume:/workspace" --workdir /workspace \
+    --env HOME=/workspace/home --env ESPPORT=/dev/infrabadge \
+    "$image" /bin/bash -c '
+        set -e
+        mkdir -p "$HOME" /workspace/projects
+        cd /workspace/projects
+        exec /usr/local/bin/idf-env "$@"
+    ' iot-idf "$@"

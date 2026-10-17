@@ -1,0 +1,62 @@
+name: iot-dev toolchain validation
+
+on:
+  pull_request:
+    branches: ["main"]
+    paths:
+      - 'dockerfiles/Containerfile.iot-dev'
+      - 'dockerfiles/esp-idf/**'
+      - 'scripts/idf-env'
+      - 'scripts/iot-pio'
+      - 'tests/iot-smoke.sh'
+      - '.github/workflows/iot-dev-test.yml'
+      - '.github/workflows/ghcr-publish.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  esp32s3:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build candidate (never publish)
+        run: |
+          start=$SECONDS
+          podman build --tag localhost/iot-dev:candidate \
+            --file dockerfiles/Containerfile.iot-dev .
+          echo "Candidate build: $((SECONDS - start)) seconds" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Compile ESP32-S3 and check PlatformIO offline as UID 1000
+        run: |
+          podman run --rm --interactive --user 1000:1000 \
+            --network none --cap-drop all --security-opt no-new-privileges \
+            localhost/iot-dev:candidate bash -s < tests/iot-smoke.sh
+
+      - name: Checkout PR base for image size comparison
+        if: github.event_name == 'pull_request'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: baseline
+
+      - name: Build baseline and report sizes (uncompressed OCI bytes)
+        if: github.event_name == 'pull_request'
+        run: |
+          podman build --tag localhost/iot-dev:baseline \
+            --file baseline/dockerfiles/Containerfile.iot-dev baseline
+          before=$(podman image inspect --format '{{.Size}}' localhost/iot-dev:baseline)
+          after=$(podman image inspect --format '{{.Size}}' localhost/iot-dev:candidate)
+          {
+            echo '| Image | Uncompressed bytes |'
+            echo '| --- | ---: |'
+            echo "| PR base | $before |"
+            echo "| Candidate | $after |"
+            echo "| Increase | $((after - before)) |"
+            echo
+            echo 'Baseline rebuilt from the PR base; this is not the size of a local Distrobox or a compressed GHCR download.'
+          } >> "$GITHUB_STEP_SUMMARY"
+          podman run --rm localhost/iot-dev:candidate du -sh /opt/esp /opt/pio

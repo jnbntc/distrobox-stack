@@ -8,6 +8,7 @@ on:
     paths:
       - 'dockerfiles/**'
       - 'scripts/**'
+      - 'tests/**'
       - '.github/workflows/ghcr-publish.yml'
   workflow_dispatch:
 
@@ -82,22 +83,10 @@ jobs:
               '
               ;;
             iot-dev)
-              podman run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/iot-dev:latest sh -lc '
-                set -e
-                python3 --version
-                command -v pio
-                command -v platformio
-                command -v lsusb
-                command -v udevadm
-                pio --version | grep -F "PlatformIO Core, version 6.2.0"
-                platformio --version | grep -F "PlatformIO Core, version 6.2.0"
-                export HOME=/tmp/iot-user
-                export XDG_DATA_HOME=/tmp/iot-xdg
-                mkdir -p "$HOME" "$XDG_DATA_HOME"
-                pio system info
-                test -d "$XDG_DATA_HOME/platformio"
-                test ! -e "$HOME/.platformio"
-              '
+              podman run --rm --interactive --user 1000:1000 \
+                --network none --cap-drop all --security-opt no-new-privileges \
+                ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/iot-dev:latest \
+                bash -s < tests/iot-smoke.sh
               ;;
             android-ops)
               podman run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/android-ops:latest sh -lc '
