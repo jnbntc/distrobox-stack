@@ -184,6 +184,36 @@ para que la reproducibilidad del firmware no dependa sólo de la imagen.
 
 #### USB Serial/JTAG y monitor
 
+El flujo serie usa sólo el TTY. No necesita exponer `/dev/bus/usb` al contenedor.
+La prueba física local del 17 de octubre de 2026 confirmó lectura/escritura del
+TTY antes y después de reconectar la misma placa, tanto en el host como en Podman;
+también se conservó el enlace `by-id`. El USB directo quedó restringido dentro del
+contenedor con SELinux Enforcing, aun usando la ruta original. No se cambia la
+política para el flujo serie. JTAG/libusb queda pendiente por separado; no se
+probaron apertura, comunicación efectiva, flasheo ni monitor.
+
+Para usar directamente la imagen local sin reemplazar el Distrobox existente:
+
+```bash
+IDF_IMAGE=localhost/custom/iot-dev:esp-idf-5.5.5 ./scripts/iot-idf
+```
+
+El lanzador del host detecta una placa Espressif USB Serial/JTAG, comprueba sus
+permisos y expone sólo su TTY como `/dev/infrabadge`, con `ESPPORT` configurado.
+También acepta comandos, por ejemplo `./scripts/iot-idf idf.py --version`.
+Si hay varias placas, seleccionar una con `IDF_PORT=/dev/serial/by-id/ENLACE_REAL`.
+Después de reconectar, salir del shell y volver a abrir el lanzador para redetectar
+el nodo actual; no se promete hotplug dentro del mismo contenedor.
+
+Los proyectos persisten en `/workspace/projects`, dentro del volumen Podman
+`infrabadge-esp-idf-workspace`; el HOME de este entorno está en `/workspace/home`.
+No se montan ni se relabelan proyectos o el HOME del host. El contenedor se elimina
+al salir, pero el volumen conserva los archivos y el estado de este entorno.
+`IDF_WORKSPACE_VOLUME` permite elegir otro volumen nombrado. Para VS Code, adjuntar
+Dev Containers al nombre `infrabadge-idf-*` que imprime el lanzador y abrir
+`/workspace/projects`. La imagen debe estar construida localmente: no se descarga
+ni se publica automáticamente. SELinux, udev y el `iot-dev` actual se conservan.
+
 Los siguientes comandos se documentan para un proyecto autorizado para flasheo.
 **La preparación de este entorno no requiere ejecutarlos sobre la placa.**
 
@@ -290,7 +320,7 @@ durante la prueba (`replace=true` en el manifest):
 PORT=$(readlink -f /dev/serial/by-id/ENLACE_REAL_DE_LA_PLACA)
 test -c "$PORT" && test -r "$PORT" && test -w "$PORT"
 podman run --rm --userns keep-id --group-add keep-groups \
-  --device "$PORT:/dev/infrabadge" --device /dev/bus/usb \
+  --device "$PORT:/dev/infrabadge" \
   --network none --cap-drop all --security-opt no-new-privileges \
   --env HOME=/tmp/iot-idf-user localhost/custom/iot-dev:esp-idf-5.5.5 \
   bash -ec 'mkdir -p "$HOME"; test -r /dev/infrabadge; test -w /dev/infrabadge;
