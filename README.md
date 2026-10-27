@@ -32,6 +32,8 @@ Desktop apps → Flatpak
 
 ## Contenedores
 
+Propuesta optativa: [trustforge-dev](workspaces/trustforge-dev/README.md), definida fuera del manifest y publicador masivos. Solo validación estática; construcción, publicación y despliegue requieren revisión y autorización separada.
+
 | Contenedor | Contexto | Propósito |
 | --- | --- | --- |
 | `sys-ops` | rootless | PowerShell, Kerberos, DNS y administración general. |

@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "workspace": "trustforge-dev",
+  "platform": "linux/amd64",
+  "status": "draft-not-built-not-deployed",
+  "base": {
+    "reference": "quay.io/fedora/fedora-toolbox:44",
+    "index_digest": "sha256:a3575ca832f6a5d2b050686f4638194c4ec49f8a1e83a6486169c59859a5369b",
+    "manifest_digest": "sha256:2b94f5ab65312e97c3ac02820fcd67fde07024bc2ca052c1f9e27ff2692c4596"
+  },
+  "uv": {
+    "version": "0.13.6",
+    "reference": "ghcr.io/astral-sh/uv:0.13.6",
+    "index_digest": "sha256:af22a52f5eafef3d78e551599d405c02df61919d18028f0cea8eda93bc9986d0",
+    "manifest_digest": "sha256:8b7774a14bb3abde914fda03efcb83f1f7e9163124e5c13e7fb4cc825293f5fa",
+    "release_url": "https://github.com/astral-sh/uv/releases/tag/0.13.6"
+  },
+  "python": {
+    "version": "3.13.18",
+    "selector": "cpython-3.13.18-linux-x86_64-gnu",
+    "build": "20261026",
+    "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.13.18%2B20261026-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz",
+    "sha256": "df15fe60d3ff55bf9dcf25824b5572756bb8816ff93865a273d3301d7066a8b7",
+    "metadata_source": "https://raw.githubusercontent.com/astral-sh/uv/0.13.6/crates/uv-python-managed/download-metadata.json"
+  },
+  "tools": {
+    "pytest": "9.2.0",
+    "ruff": "0.17.3",
+    "mypy": "1.20.2"
+  },
+  "requirements": {
+    "path": "requirements.lock",
+    "sha256": "3c431953cb47be3f7fc29a0aced846f85ce4d5a9be93c1f4e70c68bfaad485f2",
+    "resolver": "uv 0.13.5",
+    "target_python": "3.13.18",
+    "target_platform": "x86_64-manylinux_2_28",
+    "binary_only": true,
+    "installed_or_executed": false
+  },
+  "rpm": {
+    "packages": [
+      "ca-certificates",
+      "curl",
+      "git",
+      "jq",
+      "skopeo"
+    ],
+    "versions": "resolved at build; inventory emitted; repository snapshot not pinned"
+  },
+  "output": {
+    "repository": "ghcr.io/jnbntc/trustforge-dev",
+    "digest": null,
+    "sbom": null,
+    "signature": null,
+    "provenance": null
+  },
+  "verification": {
+    "checked_on": "2026-10-27",
+    "registry_check": "GET index and linux/amd64 manifest; computed SHA-256 and compared header and descriptor; no layers fetched",
+    "python_check": "official uv release metadata URL and SHA-256 only; archive not downloaded",
+    "crypto_identity_verified": false,
+    "build_tested": false,
+    "runtime_tested": false,
+    "reproducibility_tested": false
+  },
+  "deployment": {
+    "approved": false,
+    "blockers": [
+      "No output image digest or authenticated SBOM/signature/provenance",
+      "Distrobox 1.8.2.5 adds --privileged and label=disable; also shares HOME/runtime resources",
+      "Runtime, SELinux and compatibility tests require separate authorization"
+    ]
+  }
+}

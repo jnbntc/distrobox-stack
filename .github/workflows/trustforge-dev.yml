@@ -1,0 +1,84 @@
+name: trustforge-dev candidate (manual only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish candidate to GHCR (separate human authorization required)"
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # Dispatches from feature branches cannot build/publish unreviewed code.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - name: Validate static workspace contract
+        run: python3 -B workspaces/trustforge-dev/validate-static.py
+      - name: Build only the new workspace (no running container)
+        run: |
+          set -euo pipefail
+          test "$(id -u)" -ne 0
+          podman build --platform linux/amd64 \
+            --tag localhost/custom/trustforge-dev:candidate \
+            --file workspaces/trustforge-dev/Containerfile .
+          podman save --format oci-archive --output trustforge-dev.oci.tar \
+            localhost/custom/trustforge-dev:candidate
+          sha256sum trustforge-dev.oci.tar > trustforge-dev.oci.tar.sha256
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: trustforge-dev-candidate
+          path: |
+            trustforge-dev.oci.tar
+            trustforge-dev.oci.tar.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: build
+    if: github.ref == 'refs/heads/main' && inputs.publish == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: trustforge-dev-candidate
+      - name: Push only trustforge-dev, using a source-commit tag
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          test "$(id -u)" -ne 0
+          sha256sum -c trustforge-dev.oci.tar.sha256
+          podman load --input trustforge-dev.oci.tar
+          printf '%s' "$GHCR_TOKEN" | podman login ghcr.io \
+            --username "$GHCR_ACTOR" --password-stdin
+          trap 'podman logout ghcr.io >/dev/null' EXIT
+          podman push --digestfile workspace.digest \
+            localhost/custom/trustforge-dev:candidate \
+            "docker://ghcr.io/jnbntc/trustforge-dev:${GITHUB_SHA}"
+          {
+            echo 'Candidate image; not signed or authorized for deployment.'
+            printf 'ghcr.io/jnbntc/trustforge-dev@%s\n' "$(cat workspace.digest)"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: trustforge-dev-published-digest
+          path: workspace.digest
+          if-no-files-found: error
+          retention-days: 30
