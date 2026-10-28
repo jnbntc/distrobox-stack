@@ -1,0 +1,40 @@
+{
+  "name": "trustforge-dev static checks",
+  "on": {
+    "pull_request": {
+      "branches": [
+        "main"
+      ],
+      "paths": [
+        "workspaces/trustforge-dev/**",
+        ".github/workflows/trustforge-dev.yml",
+        ".github/workflows/trustforge-static.yml"
+      ]
+    },
+    "workflow_dispatch": {}
+  },
+  "permissions": {
+    "contents": "read"
+  },
+  "jobs": {
+    "static": {
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 5,
+      "permissions": {
+        "contents": "read"
+      },
+      "steps": [
+        {
+          "uses": "actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09",
+          "with": {
+            "persist-credentials": false
+          }
+        },
+        {
+          "name": "Offline schema, syntax, lint and negative cases",
+          "run": "python3 -B workspaces/trustforge-dev/validate-static.py"
+        }
+      ]
+    }
+  }
+}

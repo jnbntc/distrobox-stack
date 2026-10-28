@@ -1,84 +1,109 @@
-name: trustforge-dev candidate (manual only)
-
-on:
-  workflow_dispatch:
-    inputs:
-      publish:
-        description: "Publish candidate to GHCR (separate human authorization required)"
-        type: boolean
-        required: true
-        default: false
-
-permissions:
-  contents: read
-
-jobs:
-  build:
-    # Dispatches from feature branches cannot build/publish unreviewed code.
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          persist-credentials: false
-      - name: Validate static workspace contract
-        run: python3 -B workspaces/trustforge-dev/validate-static.py
-      - name: Build only the new workspace (no running container)
-        run: |
-          set -euo pipefail
-          test "$(id -u)" -ne 0
-          podman build --platform linux/amd64 \
-            --tag localhost/custom/trustforge-dev:candidate \
-            --file workspaces/trustforge-dev/Containerfile .
-          podman save --format oci-archive --output trustforge-dev.oci.tar \
-            localhost/custom/trustforge-dev:candidate
-          sha256sum trustforge-dev.oci.tar > trustforge-dev.oci.tar.sha256
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: trustforge-dev-candidate
-          path: |
-            trustforge-dev.oci.tar
-            trustforge-dev.oci.tar.sha256
-          if-no-files-found: error
-          retention-days: 7
-
-  publish:
-    needs: build
-    if: github.ref == 'refs/heads/main' && inputs.publish == true
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
-        with:
-          name: trustforge-dev-candidate
-      - name: Push only trustforge-dev, using a source-commit tag
-        env:
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GHCR_ACTOR: ${{ github.actor }}
-        run: |
-          set -euo pipefail
-          test "$(id -u)" -ne 0
-          sha256sum -c trustforge-dev.oci.tar.sha256
-          podman load --input trustforge-dev.oci.tar
-          printf '%s' "$GHCR_TOKEN" | podman login ghcr.io \
-            --username "$GHCR_ACTOR" --password-stdin
-          trap 'podman logout ghcr.io >/dev/null' EXIT
-          podman push --digestfile workspace.digest \
-            localhost/custom/trustforge-dev:candidate \
-            "docker://ghcr.io/jnbntc/trustforge-dev:${GITHUB_SHA}"
-          {
-            echo 'Candidate image; not signed or authorized for deployment.'
-            printf 'ghcr.io/jnbntc/trustforge-dev@%s\n' "$(cat workspace.digest)"
-          } >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: trustforge-dev-published-digest
-          path: workspace.digest
-          if-no-files-found: error
-          retention-days: 30
+{
+  "name": "trustforge-dev candidate and evidence (manual only)",
+  "on": {
+    "workflow_dispatch": {
+      "inputs": {
+        "publish": {
+          "description": "Publish and sign candidate; requires separate human approval",
+          "type": "boolean",
+          "required": true,
+          "default": false
+        }
+      }
+    }
+  },
+  "permissions": {
+    "contents": "read"
+  },
+  "jobs": {
+    "build": {
+      "if": "github.ref == 'refs/heads/main'",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 30,
+      "permissions": {
+        "contents": "read"
+      },
+      "steps": [
+        {
+          "uses": "actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09",
+          "with": {
+            "persist-credentials": false
+          }
+        },
+        {
+          "name": "Validate only trustforge-dev",
+          "run": "python3 -B workspaces/trustforge-dev/validate-static.py"
+        },
+        {
+          "name": "Build one candidate and record real invocation",
+          "run": "set -euo pipefail\ntest \"$(id -u)\" -ne 0\npodman build --platform linux/amd64 \\\n  --label \"org.opencontainers.image.revision=${GITHUB_SHA}\" \\\n  --tag localhost/custom/trustforge-dev:candidate \\\n  --file workspaces/trustforge-dev/Containerfile .\npodman save --format oci-archive --output trustforge-dev.oci.tar \\\n  localhost/custom/trustforge-dev:candidate\npython3 -B workspaces/trustforge-dev/make-provenance.py --record-build > workspace.build.json\nsha256sum trustforge-dev.oci.tar workspace.build.json > candidate.sha256"
+        },
+        {
+          "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+          "with": {
+            "name": "trustforge-dev-candidate",
+            "path": "trustforge-dev.oci.tar\nworkspace.build.json\ncandidate.sha256",
+            "if-no-files-found": "error",
+            "retention-days": 7
+          }
+        }
+      ]
+    },
+    "publish": {
+      "needs": "build",
+      "if": "github.ref == 'refs/heads/main' && inputs.publish == true",
+      "environment": "trustforge-bootstrap-publish",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 20,
+      "permissions": {
+        "contents": "read",
+        "packages": "write",
+        "id-token": "write"
+      },
+      "steps": [
+        {
+          "uses": "actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09",
+          "with": {
+            "persist-credentials": false
+          }
+        },
+        {
+          "uses": "actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0",
+          "with": {
+            "name": "trustforge-dev-candidate"
+          }
+        },
+        {
+          "uses": "sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6",
+          "with": {
+            "cosign-release": "v3.1.4",
+            "use-sudo": "false"
+          }
+        },
+        {
+          "uses": "anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610",
+          "with": {
+            "syft-version": "v1.55.0"
+          }
+        },
+        {
+          "name": "Publish only new image and bind evidence to final digest",
+          "env": {
+            "GHCR_TOKEN": "${{ secrets.GITHUB_TOKEN }}",
+            "GHCR_ACTOR": "${{ github.actor }}"
+          },
+          "run": "set -euo pipefail\ntest \"$(id -u)\" -ne 0\nsha256sum -c candidate.sha256\npython3 -B workspaces/trustforge-dev/make-provenance.py --record-build > expected.build.json\ncmp -s workspace.build.json expected.build.json\nprintf '%s  %s\\n' \\\n  '424e2c97d0b45fd7a6b608a87f090f35633f4c23ece5f092d48bba11aaf4bbfa' \\\n  \"$(command -v cosign)\" | sha256sum -c -\npodman load --input trustforge-dev.oci.tar\nprintf '%s' \"$GHCR_TOKEN\" | podman login ghcr.io \\\n  --username \"$GHCR_ACTOR\" --password-stdin\ntrap 'podman logout ghcr.io >/dev/null' EXIT\npodman push --digestfile workspace.digest \\\n  localhost/custom/trustforge-dev:candidate \\\n  \"docker://ghcr.io/jnbntc/trustforge-dev:${GITHUB_SHA}\"\ngrep -Ex 'sha256:[0-9a-f]{64}' workspace.digest\nimage=\"ghcr.io/jnbntc/trustforge-dev@$(cat workspace.digest)\"\nsyft scan \"registry:$image\" -o spdx-json=workspace.sbom.spdx.json\npython3 -B workspaces/trustforge-dev/make-provenance.py \\\n  --build-record workspace.build.json --image \"$image\" > workspace.provenance.json\ncosign sign --yes \"$image\"\ncosign attest --yes --predicate workspace.sbom.spdx.json --type spdxjson \"$image\"\ncosign attest --yes --predicate workspace.provenance.json \\\n  --type https://github.com/jnbntc/distrobox-stack/workspaces/trustforge-dev/provenance/v1 \"$image\"\n{\n  echo 'Candidate signed/attested by workflow; external verification and human deployment approval still required.'\n  printf '%s\\n' \"$image\"\n} >> \"$GITHUB_STEP_SUMMARY\""
+        },
+        {
+          "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+          "with": {
+            "name": "trustforge-dev-bootstrap-evidence",
+            "path": "workspace.digest\nworkspace.build.json\nworkspace.sbom.spdx.json\nworkspace.provenance.json",
+            "if-no-files-found": "error",
+            "retention-days": 30
+          }
+        }
+      ]
+    }
+  }
+}
