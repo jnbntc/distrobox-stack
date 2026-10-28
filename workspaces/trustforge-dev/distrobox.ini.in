@@ -1,0 +1,15 @@
+# Render only after image verification and architecture/deployment approval.
+# Not included by distrobox.ini or scripts/stack.sh.
+[trustforge-dev]
+image=@WORKSPACE_IMAGE@
+home="@WORKSPACE_HOME@"
+volume="@HOST_HOME@/Proyectos/trustforge:/workspace/trustforge:rw"
+additional_flags="--env UV_CACHE_DIR=@CACHE_DIR@/uv --env XDG_CACHE_HOME=@CACHE_DIR@"
+root=false
+replace=false
+pull=false
+start_now=false
+entry=false
+init=false
+nvidia=false
+unshare_all=true

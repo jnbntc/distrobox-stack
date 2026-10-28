@@ -1,0 +1,38 @@
+# linux/amd64 only; immutable source manifests recorded in contract.json.
+FROM ghcr.io/astral-sh/uv:0.13.6@sha256:8b7774a14bb3abde914fda03efcb83f1f7e9163124e5c13e7fb4cc825293f5fa AS uv
+FROM quay.io/fedora/fedora-toolbox:44@sha256:2b94f5ab65312e97c3ac02820fcd67fde07024bc2ca052c1f9e27ff2692c4596
+
+LABEL org.opencontainers.image.source="https://github.com/jnbntc/distrobox-stack" \
+      org.opencontainers.image.title="trustforge-dev" \
+      io.trustforge.contract="workspaces/trustforge-dev/contract.json"
+
+COPY --from=uv /uv /uvx /usr/local/bin/
+# RPM repositories remain mutable. Capture the resulting inventory; do not claim
+# byte-identical rebuilds from this recipe. No host packages are installed.
+# hadolint ignore=DL3041
+RUN dnf -y install --setopt=install_weak_deps=False --nodocs \
+        ca-certificates curl git jq skopeo \
+    && dnf clean all \
+    && rm -rf /var/cache/dnf
+
+COPY workspaces/trustforge-dev/requirements.lock /usr/share/trustforge/requirements.lock
+COPY workspaces/trustforge-dev/contract.json /usr/share/trustforge/contract.json
+
+ENV UV_PYTHON_INSTALL_DIR=/opt/trustforge/python
+# uv 0.13.6 contains the pinned managed-Python URL/hash in contract.json.
+RUN uv python install cpython-3.13.18-linux-x86_64-gnu \
+    && uv venv --python /opt/trustforge/python/cpython-3.13.18-linux-x86_64-gnu/bin/python3.13 /opt/trustforge/tools \
+    && uv pip sync --python /opt/trustforge/tools/bin/python --require-hashes --only-binary :all: /usr/share/trustforge/requirements.lock \
+    && uv pip check --python /opt/trustforge/tools/bin/python \
+    && ln -s /opt/trustforge/python/cpython-3.13.18-linux-x86_64-gnu/bin/python3.13 /usr/local/bin/trustforge-python \
+    && ln -s /opt/trustforge/tools/bin/pytest /usr/local/bin/pytest \
+    && ln -s /opt/trustforge/tools/bin/ruff /usr/local/bin/ruff \
+    && ln -s /opt/trustforge/tools/bin/mypy /usr/local/bin/mypy \
+    && uv cache clean \
+    && rpm -qa --qf '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort > /usr/share/trustforge/rpm-packages.txt
+
+# No change to /usr/bin/python3. Project venvs use managed Python explicitly.
+ENV UV_PYTHON=/opt/trustforge/python/cpython-3.13.18-linux-x86_64-gnu/bin/python3.13 \
+    UV_PYTHON_DOWNLOADS=never
+WORKDIR /workspace/trustforge
+CMD ["/bin/bash"]

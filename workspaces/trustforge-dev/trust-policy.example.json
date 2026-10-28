@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "approved": false,
+  "issuer": "https://token.actions.githubusercontent.com",
+  "identity": "https://github.com/jnbntc/distrobox-stack/.github/workflows/trustforge-dev.yml@refs/heads/main",
+  "repository": "jnbntc/distrobox-stack",
+  "workflow_ref": "refs/heads/main",
+  "trigger": "workflow_dispatch",
+  "source_commit": null,
+  "trusted_root_sha256": null
+}
