@@ -96,6 +96,12 @@
     "policy_template": "trust-policy.example.json",
     "verifier": "verify-bootstrap.py",
     "provenance_type": "https://github.com/jnbntc/distrobox-stack/workspaces/trustforge-dev/provenance/v1",
-    "provenance_assurance": "workflow-asserted custom provenance, authenticated by Cosign if future signing succeeds; not independent builder evidence or a SLSA level"
+    "provenance_assurance": "workflow-asserted custom provenance, authenticated by Cosign if future signing succeeds; not independent builder evidence or a SLSA level",
+    "image_signature": {
+      "predicate_type": "https://sigstore.dev/cosign/sign/v1",
+      "repository_annotation": "io.trustforge.repository",
+      "format": "Cosign 3.1.4 new-bundle in-toto v1; explicit typed verify-attestation",
+      "legacy_projection_accepted": false
+    }
   }
 }

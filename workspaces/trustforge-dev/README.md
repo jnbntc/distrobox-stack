@@ -43,6 +43,7 @@ Sin motor anidado ni host-exec; Skopeo inspecciona OCI. Se conserva graphroot/co
 ## Bootstrap independiente: sin dependencia circular con M3
 La aceptación inicial usa [verify-bootstrap.py](verify-bootstrap.py), Python estándar en un entorno ya confiable y **Cosign independiente fijado**, antes de entrar a trustforge-dev. No importa TrustForge Gate ni necesita la CLI de M3.
 El [procedimiento exacto](BOOTSTRAP.md) cubre política externa revisada, raíces, digest final, firma/identidad/issuer, SBOM y provenance vinculadas al subject, parámetros esperados y aprobación humana.
+La [interfaz de Cosign 3.1.4](COSIGN_INTERFACE.md) exige firma dedicada con el tipo nativo sign/v1, separada de SPDX/provenance y con anotación firmada de repositorio. No acepta proyecciones critical.* como sustituto. La regresión se reprodujo con mocks: no demuestra ruptura criptográfica de Cosign ni interoperabilidad real con GHCR.
 La plantilla [trust-policy.example.json](trust-policy.example.json) está approved=false, sin source commit ni hash de raíz. No existen certificados/evidencias reales de esta imagen y no se inventan. El renderer solo valida formato de manifest, no confianza.
 
 El futuro workflow prepara:
@@ -70,6 +71,7 @@ python3 -B workspaces/trustforge-dev/validate-static.py
 ```
 Sin dependencias externas ni consultas de red: lint estructural del Containerfile, bash -n de RUN y workflows, AST de scripts, JSON/INI, lock/hash, pins, rutas/permisos/eventos y casos negativos del bootstrap.
 Las fixtures de salida Cosign son simuladas y están etiquetadas como tales. No son firmas ni verificación criptográfica real.
+Se cubren ausencia/sustitución de firma dedicada, identidad rechazada por Cosign simulado, duplicados/malformación y fallo de cualquiera de las tres comprobaciones.
 El nuevo CI ejecuta estos mismos checks sobre la ruta específica. El linter global previo no se modifica ni se presenta como cobertura nueva de este Containerfile. No se ejecutó Hadolint/ShellCheck/actionlint localmente ni se instaló ninguno.
 
 ## Despliegue y rollback — pendientes de autorización nueva

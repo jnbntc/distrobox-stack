@@ -5,6 +5,7 @@ Fixture success is NOT a real Cosign/Sigstore verification or a container test.
 import ast
 import base64
 import configparser
+import contextlib
 import copy
 import hashlib
 import importlib.util
@@ -113,7 +114,11 @@ def lint_workflows(manual, static):
     assert uses[syft["action"]]["with"]["syft-version"] == syft["version"]
     run = "\n".join(s.get("run", "") for s in publish["steps"])
     assert cosign["sha256"] in run
-    for required in ('syft scan "registry:$image"', 'cosign sign --yes "$image"',
+    assert "-a io.trustforge.repository=ghcr.io/jnbntc/trustforge-dev" in run
+    assert CONTRACT["bootstrap"]["image_signature"]["predicate_type"] == bootstrap.IMAGE_SIGNATURE
+    assert CONTRACT["bootstrap"]["image_signature"]["repository_annotation"] == bootstrap.REPOSITORY_ANNOTATION
+    assert CONTRACT["bootstrap"]["image_signature"]["legacy_projection_accepted"] is False
+    for required in ('syft scan "registry:$image"', 'cosign sign --yes --new-bundle-format=true',
                      "--type spdxjson", bootstrap.PROVENANCE):
         assert required in run
     assert "stack.sh" not in run and ":latest" not in run
@@ -160,9 +165,46 @@ def fixture_envelope(predicate, kind):
             "signatures": []}
 
 
-def fixture_signature():
-    return json.dumps([{"critical": {"identity": {"docker-reference": bootstrap.REPOSITORY},
-                                     "image": {"docker-manifest-digest": "sha256:" + "a" * 64}}}])
+def fixture_signature_statement(digest="a" * 64, repository=bootstrap.REPOSITORY):
+    # Source-based shape: Cosign 3.1.4 sign.signDigestBundle, nameless subject.
+    return {"_type": "https://in-toto.io/Statement/v1",
+            "subject": [{"digest": {"sha256": digest},
+                         "annotations": {bootstrap.REPOSITORY_ANNOTATION: repository}}],
+            "predicateType": bootstrap.IMAGE_SIGNATURE, "predicate": {}}
+
+
+def fixture_signature(digest="a" * 64, repository=bootstrap.REPOSITORY):
+    statement = fixture_signature_statement(digest, repository)
+    return json.dumps({"payloadType": "application/vnd.in-toto+json",
+                       "payload": base64.b64encode(json.dumps(statement).encode()).decode(),
+                       "signatures": []})  # Mocked verified stdout, NOT a signature.
+
+
+@contextlib.contextmanager
+def fixture_verification_inputs():
+    with tempfile.TemporaryDirectory() as tmp:
+        binary, root = Path(tmp) / "cosign", Path(tmp) / "root.json"
+        binary.write_bytes(b"fixture, not executable")
+        root.write_text('{"fixture":true}')
+        policy = fixture_policy()
+        policy["trusted_root_sha256"] = hashlib.sha256(root.read_bytes()).hexdigest()
+        contract = copy.deepcopy(CONTRACT)
+        contract["bootstrap"]["cosign"]["sha256"] = hashlib.sha256(binary.read_bytes()).hexdigest()
+        yield policy, contract, binary, root
+
+
+def fixture_responses():
+    return [fixture_signature(),
+            json.dumps(fixture_envelope(fixture_sbom(), bootstrap.SPDX)),
+            json.dumps(fixture_envelope(fixture_provenance(), bootstrap.PROVENANCE))]
+
+
+def fixture_generic_projection(kinds):
+    # Mirrors v3.1.4 verify.transformOutput's fields; no real crypto executed.
+    return json.dumps([{"critical": {
+        "identity": {"docker-reference": IMAGE},
+        "image": {"docker-manifest-digest": "sha256:" + "a" * 64},
+        "type": kind}, "optional": {}} for kind in kinds])
 
 
 class WorkspaceContract(unittest.TestCase):
@@ -276,7 +318,9 @@ class BootstrapVerification(unittest.TestCase):
 
     def test_commands_bind_all_crypto_checks_and_no_bypass(self):
         cmds = bootstrap.cosign_commands("/trusted/cosign", "/trusted/root.json", fixture_policy(), IMAGE)
-        self.assertEqual([cmd[1] for cmd in cmds], ["verify", "verify-attestation", "verify-attestation"])
+        self.assertEqual([cmd[1] for cmd in cmds], ["verify-attestation"] * 3)
+        self.assertEqual([cmd[cmd.index("--type") + 1] for cmd in cmds],
+                         [bootstrap.IMAGE_SIGNATURE, "spdxjson", bootstrap.PROVENANCE])
         for cmd in cmds:
             self.assertEqual(cmd[-1], IMAGE)
             for flag in ("--certificate-identity", "--certificate-oidc-issuer", "--certificate-github-workflow-sha", "--trusted-root"):
@@ -289,8 +333,8 @@ class BootstrapVerification(unittest.TestCase):
 
     def test_signature_digest_or_repository_mismatch_denied(self):
         bootstrap.signature_claims(fixture_signature(), IMAGE)
-        for raw in (fixture_signature().replace("a" * 64, "d" * 64),
-                    fixture_signature().replace(bootstrap.REPOSITORY, "ghcr.io/other/image"), "[]"):
+        for raw in (fixture_signature(digest="d" * 64),
+                    fixture_signature(repository="ghcr.io/other/image"), "[]"):
             with self.assertRaises(bootstrap.VerificationError):
                 bootstrap.signature_claims(raw, IMAGE)
 
@@ -371,6 +415,107 @@ class BootstrapVerification(unittest.TestCase):
             bad = dict(env, **{key: "wrong"})
             with self.subTest(key=key), self.assertRaises(maker.bootstrap.VerificationError):
                 maker.record(CONTRACT, bad)
+
+
+    def test_original_regression_sbom_provenance_projections_require_deny(self):
+        # The previous verifier returned VERIFIED for all three cases with the
+        # same mocked responses. Generic projection is not a dedicated signature.
+        for kinds in ([bootstrap.SPDX], [bootstrap.PROVENANCE],
+                      [bootstrap.SPDX, bootstrap.PROVENANCE]):
+            with self.subTest(kinds=kinds), fixture_verification_inputs() as inputs:
+                responses = fixture_responses()
+                responses[0] = fixture_generic_projection(kinds)
+                with mock.patch.object(bootstrap, "invoke", side_effect=responses) as calls:
+                    with self.assertRaises(bootstrap.VerificationError):
+                        bootstrap.verify(IMAGE, *inputs)
+                    self.assertEqual(calls.call_count, 1)
+
+    def test_only_sbom_and_provenance_without_image_signature_denied(self):
+        with fixture_verification_inputs() as inputs:
+            responses = fixture_responses()
+            responses[0] = responses[1] + "\n" + responses[2]
+            with mock.patch.object(bootstrap, "invoke", side_effect=responses) as calls:
+                with self.assertRaisesRegex(bootstrap.VerificationError, "predicate type"):
+                    bootstrap.verify(IMAGE, *inputs)
+                self.assertEqual(calls.call_count, 1)
+
+    def test_attestation_cannot_be_relabelled_as_dedicated_signature(self):
+        for predicate in (fixture_sbom(), fixture_provenance()):
+            statement = fixture_signature_statement()
+            statement["predicate"] = predicate
+            raw = json.dumps({"payloadType": "application/vnd.in-toto+json",
+                              "payload": base64.b64encode(json.dumps(statement).encode()).decode()})
+            with self.subTest(predicate=predicate), self.assertRaises(bootstrap.VerificationError):
+                bootstrap.signature_claims(raw, IMAGE)
+
+    def test_signature_requires_native_v1_type_and_signed_repository(self):
+        with self.assertRaises(bootstrap.VerificationError):
+            bootstrap.signature_claims(fixture_generic_projection([bootstrap.IMAGE_SIGNATURE]), IMAGE)
+        for mode in ("missing-annotation", "wrong-repository", "wrong-name", "missing-type", "legacy-type"):
+            statement = fixture_signature_statement()
+            subject = statement["subject"][0]
+            if mode == "missing-annotation": del subject["annotations"]
+            if mode == "wrong-repository": subject["annotations"][bootstrap.REPOSITORY_ANNOTATION] = "other"
+            if mode == "wrong-name": subject["name"] = "other"
+            if mode == "missing-type": del statement["predicateType"]
+            if mode == "legacy-type": statement["_type"] = "https://in-toto.io/Statement/v0.1"
+            raw = json.dumps({"payloadType": "application/vnd.in-toto+json",
+                              "payload": base64.b64encode(json.dumps(statement).encode()).decode()})
+            with self.subTest(mode=mode), self.assertRaises(bootstrap.VerificationError):
+                bootstrap.signature_claims(raw, IMAGE)
+
+    def test_missing_or_empty_signature_output_denied(self):
+        for raw in ("", " ", "[]", "{}", "null"):
+            with self.subTest(raw=raw), fixture_verification_inputs() as inputs:
+                responses = fixture_responses()
+                responses[0] = raw
+                with mock.patch.object(bootstrap, "invoke", side_effect=responses):
+                    with self.assertRaises(bootstrap.VerificationError):
+                        bootstrap.verify(IMAGE, *inputs)
+
+    def test_duplicate_or_malformed_evidence_denied_in_each_role(self):
+        for position in range(3):
+            for mode in ("duplicate", "same-statement-new-envelope", "malformed", "duplicate-json-key", "no-separator"):
+                with self.subTest(position=position, mode=mode), fixture_verification_inputs() as inputs:
+                    responses = fixture_responses()
+                    raw = responses[position]
+                    if mode == "duplicate": raw = raw + "\n" + raw
+                    if mode == "same-statement-new-envelope":
+                        other = json.loads(raw)
+                        other["signatures"] = [{"sig": "fixture-only"}]
+                        raw = raw + "\n" + json.dumps(other)
+                    if mode == "malformed": raw = '{"payload":'
+                    if mode == "duplicate-json-key": raw = '{"payload":"a","payload":"b"}'
+                    if mode == "no-separator": raw = raw + raw
+                    responses[position] = raw
+                    with mock.patch.object(bootstrap, "invoke", side_effect=responses):
+                        with self.assertRaises(bootstrap.VerificationError):
+                            bootstrap.verify(IMAGE, *inputs)
+
+    def test_wrong_signature_identity_rejected_by_cosign_denies_pipeline(self):
+        # Simulate Cosign's cryptographic identity rejection, not a real cert.
+        with fixture_verification_inputs() as inputs:
+            failure = subprocess.CalledProcessError(1, "cosign", stderr="certificate identity mismatch")
+            with mock.patch.object(bootstrap.subprocess, "run", side_effect=failure) as run:
+                with self.assertRaises(bootstrap.VerificationError):
+                    bootstrap.verify(IMAGE, *inputs)
+                command = run.call_args.args[0]
+                self.assertEqual(command[command.index("--certificate-identity") + 1], bootstrap.IDENTITY)
+                self.assertEqual(command[command.index("--certificate-oidc-issuer") + 1], bootstrap.ISSUER)
+                self.assertEqual(command[command.index("--type") + 1], bootstrap.IMAGE_SIGNATURE)
+                self.assertEqual(run.call_count, 1)
+
+    def test_failure_of_any_of_three_verifications_denies_pipeline(self):
+        for position in range(3):
+            with self.subTest(position=position), fixture_verification_inputs() as inputs:
+                responses = fixture_responses()
+                completed = [subprocess.CompletedProcess("fixture", 0, stdout=raw, stderr="")
+                             for raw in responses[:position]]
+                completed.append(subprocess.CalledProcessError(1, "cosign"))
+                with mock.patch.object(bootstrap.subprocess, "run", side_effect=completed) as run:
+                    with self.assertRaises(bootstrap.VerificationError):
+                        bootstrap.verify(IMAGE, *inputs)
+                    self.assertEqual(run.call_count, position + 1)
 
 
 if __name__ == "__main__":

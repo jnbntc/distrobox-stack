@@ -37,7 +37,7 @@ El propietario debe aprobar identidad, issuer, raíces, permisos OIDC/packages y
 1. Tras revisión y autorización de build, workflow_dispatch desde main con publish=false. Construye solamente trustforge-dev, fija label de revision y crea archivo OCI/checksum y registro de build con source/workflow/run.
 2. Para publicación/firma, una autorización independiente permite un dispatch con publish=true. El workflow actual reconstruye el candidato en ese run antes de publicar: autorizar este segundo dispatch implica también ese build; no se reutiliza silenciosamente un archivo de otro run.
 3. El publisher main-only verifica checksums y la coherencia del registro con su source/workflow/run, hace push del candidato y captura el digest final.
-4. Syft 1.55.0 escanea registry:<imagen@digest> sin ejecutarla; genera SPDX 2.3. Cosign 3.1.4 firma y atesta el SBOM y la provenance custom sobre esa misma referencia.
+4. Syft 1.55.0 escanea registry:<imagen@digest> sin ejecutarla; genera SPDX 2.3. Cosign 3.1.4 crea una firma dedicada en formato nuevo con anotación firmada io.trustforge.repository y atesta por separado SBOM/provenance sobre esa referencia.
 5. Si falla SBOM/firma/atestación tras el push, la imagen puede existir pero no es aceptable para despliegue. No sustituir las evidencias faltantes por JSON manual ni omitir verificaciones.
 
 Provenance URI: https://github.com/jnbntc/distrobox-stack/workspaces/trustforge-dev/provenance/v1.
@@ -58,7 +58,7 @@ python3 -B /checkout-revisado/workspaces/trustforge-dev/verify-bootstrap.py \
 El marcador de digest se rechaza. La política entregada en el repositorio también se rechaza mientras esté approved=false o falten commit/raíz. No hay modo skip-crypto, modo offline-JSON ni auto-install.
 
 El script calcula hash del binario/raíces y llama a Cosign en tres pasos:
-1. verify, salida JSON, sobre imagen@digest.
+1. verify-attestation --type https://sigstore.dev/cosign/sign/v1, para la firma dedicada de imagen.
 2. verify-attestation --type spdxjson, sobre la misma imagen.
 3. verify-attestation --type <URI de provenance anterior>, sobre la misma imagen.
 
@@ -66,7 +66,7 @@ Los tres comandos exigen --certificate-identity, --certificate-oidc-issuer, --ce
 Cosign realiza la criptografía, validación de certificados/transparencia y asociación del digest. Se inspeccionaron opciones/salidas de v3.1.4 para preparar este adaptador; su interoperabilidad real sigue pendiente de prueba.
 
 Solo tras un exit 0 de cada comando se interpreta su stdout:
-- Firma: repositorio y digest exactos.
+- Firma dedicada: in-toto v1, predicateType https://sigstore.dev/cosign/sign/v1, predicate vacío, digest exacto y anotación firmada io.trustforge.repository igual al repositorio esperado. El subject nativo puede carecer de name; no se confía en un nombre sintetizado por verify.
 - Atestaciones: DSSE/in-toto esperado, predicate type y un solo subject del repositorio/digest exactos.
 - SBOM: documento SPDX no vacío; la firma autentica su asociación, no demuestra cobertura perfecta ni ausencia de vulnerabilidades.
 - Provenance: artefacto, source commit/repository/ref, builder/workflow/SHA/trigger, invocation y parámetros/materiales iguales al contrato aprobado.
@@ -79,6 +79,8 @@ Después de esa autorización, comprobar colisión/inventario, renderizar el man
 No verificar desde el contenedor que se pretende aceptar ni ejecutar su contenido para «demostrar» confianza. El laboratorio M4 tiene otra frontera independiente.
 
 ## 6. Límites y pruebas pendientes
+La [interfaz y fuente oficial](COSIGN_INTERFACE.md) explican por qué critical.* de cosign verify no basta para distinguir firma/SBOM/provenance. Se usan tres comprobaciones nativas tipadas; sin firma dedicada se deniega aunque existan SBOM y provenance. No se aceptan arrays genéricos, duplicados o formatos legacy como fallback.
+
 Se ejecutaron pruebas estáticas y fixtures con Cosign simulado: prueban errores/parámetros/parsers, no criptografía real.
 Faltan build/publicación autorizados; verificar firmas/atestaciones reales y casos negativos reales de identidad/issuer/subject/source; comprobar compatibilidad GHCR/referrers/formato; probar mounts/SELinux y persistencia con Distrobox autorizado.
 RPM móviles e inicialización no fijada siguen limitando rebuilds. Integridad, autenticidad, provenance, repetibilidad de consumo por digest y reproducibilidad de build son garantías distintas; ninguna es equivalente a que una receta exista.

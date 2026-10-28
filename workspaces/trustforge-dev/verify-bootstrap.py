@@ -20,6 +20,9 @@ IDENTITY = "https://github.com/" + WORKFLOW
 ISSUER = "https://token.actions.githubusercontent.com"
 PROVENANCE = "https://github.com/jnbntc/distrobox-stack/workspaces/trustforge-dev/provenance/v1"
 SPDX = "https://spdx.dev/Document"
+# Cosign v3.1.4 pkg/types/predicate.go and sign.signDigestBundle.
+IMAGE_SIGNATURE = "https://sigstore.dev/cosign/sign/v1"
+REPOSITORY_ANNOTATION = "io.trustforge.repository"
 HEX = re.compile(r"[0-9a-f]{64}")
 COMMIT = re.compile(r"[0-9a-f]{40}")
 
@@ -80,37 +83,37 @@ def check_policy(policy):
 
 def verified_documents(raw):
     # Cosign 3.1.4 verify-attestation emits one verified DSSE envelope per line.
-    # Accept a JSON array too, but reject bare unverified in-toto statements.
+    # Native text output contains JSON objects separated by whitespace, not a
+    # generic verify JSON array. Role-specific DSSE validation follows below.
     result = []
     remaining = raw.strip()
     parser = decoder()
     try:
         while remaining:
             value, end = parser.raw_decode(remaining)
-            result.extend(value if isinstance(value, list) else [value])
-            remaining = remaining[end:].lstrip()
+            result.append(value)
+            tail = remaining[end:]
+            require(not tail or tail[0].isspace(), "invalid Cosign record separator")
+            remaining = tail.lstrip()
     except (ValueError, TypeError) as error:
         raise VerificationError("malformed Cosign output") from error
     require(bool(result), "missing verified evidence")
     require(all(isinstance(item, dict) for item in result), "unexpected Cosign output")
+    fingerprints = [json.dumps(item, sort_keys=True, separators=(",", ":")) for item in result]
+    require(len(fingerprints) == len(set(fingerprints)), "duplicate verified evidence")
     return result
 
 
 def signature_claims(raw, image):
-    image_digest(image)
-    for signature in verified_documents(raw):
-        critical = signature.get("critical", {})
-        require(isinstance(critical, dict), "malformed signature claims")
-        identity = critical.get("identity", {})
-        artifact = critical.get("image", {})
-        require(isinstance(identity, dict) and isinstance(artifact, dict), "malformed signature claims")
-        require(identity.get("docker-reference") in (REPOSITORY, image), "signature repository mismatch")
-        require(artifact.get("docker-manifest-digest") == "sha256:" + image_digest(image), "signature digest mismatch")
+    # Never consume generic 'cosign verify' critical.* projections: v3.1.4
+    # transformOutput can project SBOM/provenance as image-shaped records.
+    verified_statements(raw, image, IMAGE_SIGNATURE)
 
 
-def statements(raw, image, predicate_type):
+def verified_statements(raw, image, predicate_type):
     digest = image_digest(image)
     result = []
+    seen = set()
     for envelope in verified_documents(raw):
         require(envelope.get("payloadType") == "application/vnd.in-toto+json", "unexpected DSSE payload type")
         require(isinstance(envelope.get("payload"), str), "missing DSSE payload")
@@ -122,14 +125,33 @@ def statements(raw, image, predicate_type):
         require(isinstance(statement, dict), "malformed statement")
         require(statement.get("_type") in ("https://in-toto.io/Statement/v0.1", "https://in-toto.io/Statement/v1"), "unexpected in-toto type")
         require(statement.get("predicateType") == predicate_type, "unexpected predicate type")
+        fingerprint = json.dumps(statement, sort_keys=True, separators=(",", ":"))
+        require(fingerprint not in seen, "duplicate verified statement")
+        seen.add(fingerprint)
         subjects = statement.get("subject")
         require(isinstance(subjects, list) and len(subjects) == 1, "ambiguous or missing subject")
         subject = subjects[0]
-        require(isinstance(subject, dict) and subject.get("name") in (REPOSITORY, image), "subject repository mismatch")
+        require(isinstance(subject, dict), "malformed subject")
+        if predicate_type == IMAGE_SIGNATURE:
+            # signDigestBundle intentionally emits a nameless subject. Bind the
+            # repository using an explicitly signed subject annotation instead
+            # of a name synthesized by generic verify's transformOutput.
+            require(statement["_type"] == "https://in-toto.io/Statement/v1", "unexpected image-signature statement type")
+            require(subject.get("name", "") in ("", REPOSITORY, image), "signature subject repository mismatch")
+            annotations = subject.get("annotations")
+            require(isinstance(annotations, dict) and annotations.get(REPOSITORY_ANNOTATION) == REPOSITORY,
+                    "missing or incorrect signed repository annotation")
+            require(statement.get("predicate") == {}, "image-signature predicate must be empty")
+        else:
+            require(subject.get("name") in (REPOSITORY, image), "subject repository mismatch")
         require(subject.get("digest") == {"sha256": digest}, "subject digest mismatch")
         require(isinstance(statement.get("predicate"), dict), "missing predicate")
-        result.append(statement["predicate"])
+        result.append(statement)
     return result
+
+
+def statements(raw, image, predicate_type):
+    return [statement["predicate"] for statement in verified_statements(raw, image, predicate_type)]
 
 
 def expected_materials(contract):
@@ -187,7 +209,7 @@ def cosign_commands(binary, root, policy, image):
         "--insecure-ignore-tlog=false", "--insecure-ignore-sct=false",
     ]
     return [
-        [str(binary), "verify", *common, "--output", "json", image],
+        [str(binary), "verify-attestation", *common, "--type", IMAGE_SIGNATURE, image],
         [str(binary), "verify-attestation", *common, "--type", "spdxjson", image],
         [str(binary), "verify-attestation", *common, "--type", PROVENANCE, image],
     ]
@@ -230,6 +252,8 @@ def verify(image, policy, contract, binary, root):
         "identity": policy["identity"], "issuer": policy["issuer"],
         "trusted_root_sha256": policy["trusted_root_sha256"],
         "cosign_version": contract["bootstrap"]["cosign"]["version"],
+        "image_signature_predicate": IMAGE_SIGNATURE,
+        "signed_repository_annotation": REPOSITORY_ANNOTATION,
         "sbom_predicate": SPDX, "provenance_predicate": PROVENANCE,
         "deployment_authorized": False,
     }
