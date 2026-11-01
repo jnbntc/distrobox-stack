@@ -4,9 +4,10 @@
   "platform": "linux/amd64",
   "status": "draft-not-built-not-deployed",
   "base": {
-    "reference": "quay.io/fedora/fedora-toolbox:44",
-    "index_digest": "sha256:a3575ca832f6a5d2b050686f4638194c4ec49f8a1e83a6486169c59859a5369b",
-    "manifest_digest": "sha256:2b94f5ab65312e97c3ac02820fcd67fde07024bc2ca052c1f9e27ff2692c4596"
+    "reference": "quay.io/fedora/fedora-toolbox",
+    "index_digest": "sha256:21c085137409ade6571f23eabf9647be80a460c7b674102a5abcefd041346d1d",
+    "manifest_digest": "sha256:691fb31f8934a0ea759febe7a0aa5e81a3e6c27d58c279c091bffa91e3fb3abb",
+    "tag_reference": "quay.io/fedora/fedora-toolbox:44"
   },
   "uv": {
     "version": "0.13.6",
@@ -56,12 +57,14 @@
   },
   "verification": {
     "checked_on": "2026-10-27",
-    "registry_check": "GET index and linux/amd64 manifest; computed SHA-256 and compared header and descriptor; no layers fetched",
+    "registry_check": "Initial 2026-10-27 index and manifest checks only; updated base verification is recorded separately in base_registry_check",
     "python_check": "official uv release metadata URL and SHA-256 only; archive not downloaded",
     "crypto_identity_verified": false,
     "build_tested": false,
     "runtime_tested": false,
-    "reproducibility_tested": false
+    "reproducibility_tested": false,
+    "base_checked_on": "2026-11-01",
+    "base_registry_check": "Official Fedora Toolbox 44 tag index and linux/amd64 descriptor SHA-256/length checked; exact digest-only FROM downloaded with skopeo copy --preserve-digests, including config and layers; Fedora Project/version 44 labels checked; not a signature or runtime verification"
   },
   "deployment": {
     "approved": false,
