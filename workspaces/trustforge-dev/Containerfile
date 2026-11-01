@@ -1,6 +1,6 @@
 # linux/amd64 only; immutable source manifests recorded in contract.json.
 FROM ghcr.io/astral-sh/uv:0.13.6@sha256:8b7774a14bb3abde914fda03efcb83f1f7e9163124e5c13e7fb4cc825293f5fa AS uv
-FROM quay.io/fedora/fedora-toolbox:44@sha256:2b94f5ab65312e97c3ac02820fcd67fde07024bc2ca052c1f9e27ff2692c4596
+FROM quay.io/fedora/fedora-toolbox@sha256:691fb31f8934a0ea759febe7a0aa5e81a3e6c27d58c279c091bffa91e3fb3abb
 
 LABEL org.opencontainers.image.source="https://github.com/jnbntc/distrobox-stack" \
       org.opencontainers.image.title="trustforge-dev" \
