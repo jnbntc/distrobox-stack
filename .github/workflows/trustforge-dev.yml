@@ -8,6 +8,12 @@
           "type": "boolean",
           "required": true,
           "default": false
+        },
+        "publication_confirmation": {
+          "description": "When publish=true: PUBLISH jnbntc/distrobox-stack/.github/workflows/trustforge-dev.yml@refs/heads/main <exact reviewed main commit SHA>",
+          "type": "string",
+          "required": false,
+          "default": ""
         }
       }
     }
@@ -29,6 +35,14 @@
           "with": {
             "persist-credentials": false
           }
+        },
+        {
+          "name": "Validate explicit publication intent",
+          "env": {
+            "TF_PUBLISH": "${{ inputs.publish }}",
+            "TF_PUBLICATION_CONFIRMATION": "${{ inputs.publication_confirmation }}"
+          },
+          "run": "python3 -B workspaces/trustforge-dev/check-publication-intent.py"
         },
         {
           "name": "Validate only trustforge-dev",
@@ -66,6 +80,14 @@
           "with": {
             "persist-credentials": false
           }
+        },
+        {
+          "name": "Validate explicit publication intent",
+          "env": {
+            "TF_PUBLISH": "${{ inputs.publish }}",
+            "TF_PUBLICATION_CONFIRMATION": "${{ inputs.publication_confirmation }}"
+          },
+          "run": "python3 -B workspaces/trustforge-dev/check-publication-intent.py"
         },
         {
           "uses": "actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0",

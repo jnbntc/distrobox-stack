@@ -55,6 +55,13 @@ El futuro workflow prepara:
 Cosign 3.1.4 y Syft 1.55.0/acciones oficiales están fijados en contrato; no se instalaron ni ejecutaron ahora. La provenance es una declaración del workflow autenticada si la firma futura tiene éxito; no es evidencia de builder independiente ni nivel SLSA.
 
 ## Garantías distintas y estado actual
+### Confirmación explícita del mantenedor único
+El workflow manual conserva publish=false. Con publish=true, publication_confirmation debe ser exactamente `PUBLISH jnbntc/distrobox-stack/.github/workflows/trustforge-dev.yml@refs/heads/main <SHA_REVISADO_DE_40_HEX>`; sustituir el marcador por el commit de main revisado antes del dispatch. Obtener ese SHA mediante lectura de GitHub, no de una evidencia recibida. Si main cambia, revisar el nuevo commit y confirmar de nuevo; una confirmación antigua se rechaza.
+
+La comprobación ocurre antes de construir y de publicar, sin interpolar la entrada en shell; valida evento/repositorio/workflow/ref/source y registra run ID/attempt reales. El run ID todavía no existe al rellenar el dispatch: queda vinculado como contexto de ejecución, no como un ID previamente confirmado. El mismo texto puede reutilizarse para ese mismo SHA/reintento; no es un token de aprobación de un solo uso.
+
+El environment permite solo la rama main, sin tags ni required reviewers por decisión del mantenedor único. Ni esa restricción ni el texto constituyen aprobación humana independiente, verificación criptográfica o autorización de despliegue. Los controles de firma/atestaciones y política externa siguen siendo obligatorios. publish=true construye de nuevo: se confirma la intención y el source, no un digest final aún inexistente. Confirmar un candidato/digest entre dos ejecuciones exigiría diseñar una promoción separada; no se introduce aquí. La protección de main exige PR y checks, sin aprobaciones imposibles del propio autor.
+
 | Garantía | Significado | Estado |
 |---|---|---|
 | Integridad | Digest identifica bytes | Fuentes OCI/lock comprobados; imagen final ausente |
