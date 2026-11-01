@@ -47,3 +47,15 @@ Se cubren solo SBOM/provenance, proyección genérica como firma, atestación re
 La política entregada sigue sin aprobar y VERIFIED mantiene deployment_authorized=false.
 Faltan artefactos reales autorizados para probar selectores/formato/referrers, anotación, certificados/tlog/SCT e interoperabilidad Cosign 3.1.4/GHCR, incluyendo negativos criptográficos reales. No hay afirmación de seguridad criptográfica basada en los mocks.
 La política conservadora también deniega statements idénticos publicados legítimamente más de una vez. Revisar ese caso con evidencias reales antes de considerar compatibilidad de reintentos; no se deduplican ni se limpian firmas automáticamente.
+
+## Identidad de promoción separada
+
+El esquema de política 1 conserva `trustforge-dev.yml` como firmante y builder.
+El esquema 2 exige explícitamente `trustforge-promote.yml@refs/heads/main` como
+identidad del certificado y `signer_commit` como SHA del workflow firmante;
+`source_commit` sigue identificando el build original. Las tres invocaciones
+Cosign conservan issuer, repositorio, ref, trigger, TrustedRoot, claims, tlog y SCT.
+La provenance adicional `promotion` debe coincidir con ese firmante y con el
+candidato fijado; el builder original no se reescribe como promotor. La política
+de promoción entregada no está aprobada. Esta separación no demuestra por sí misma
+interoperabilidad criptográfica real ni concede autorización de despliegue.

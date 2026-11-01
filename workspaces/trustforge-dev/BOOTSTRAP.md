@@ -82,6 +82,60 @@ No verificar desde el contenedor que se pretende aceptar ni ejecutar su contenid
 La [interfaz y fuente oficial](COSIGN_INTERFACE.md) explican por qué critical.* de cosign verify no basta para distinguir firma/SBOM/provenance. Se usan tres comprobaciones nativas tipadas; sin firma dedicada se deniega aunque existan SBOM y provenance. No se aceptan arrays genéricos, duplicados o formatos legacy como fallback.
 
 Se ejecutaron pruebas estáticas y fixtures con Cosign simulado: prueban errores/parámetros/parsers, no criptografía real.
-Faltan build/publicación autorizados; verificar firmas/atestaciones reales y casos negativos reales de identidad/issuer/subject/source; comprobar compatibilidad GHCR/referrers/formato; probar mounts/SELinux y persistencia con Distrobox autorizado.
+El candidato del run 41344731623 (intento 1, artifact 13098563945, source 89b4ca3b159914fc9e8cb60853907d57cfe9f406) fue construido e inspeccionado sin publicación. Faltan publicación autorizada, firmas/atestaciones reales y negativos reales de identidad/issuer/subject/source; comprobar compatibilidad GHCR/referrers/formato; probar mounts/SELinux y persistencia con Distrobox autorizado.
 RPM móviles e inicialización no fijada siguen limitando rebuilds. Integridad, autenticidad, provenance, repetibilidad de consumo por digest y reproducibilidad de build son garantías distintas; ninguna es equivalente a que una receta exista.
 Referencias: [Cosign verify](https://docs.sigstore.dev/cosign/verifying/verify/), [atestaciones](https://docs.sigstore.dev/cosign/verifying/attestation/), [Cosign v3.1.4](https://github.com/sigstore/cosign/tree/v3.1.4).
+
+## 7. Promoción del candidato inspeccionado, sin reconstrucción
+
+`trustforge-promote.yml` es una propuesta manual separada: no se ha ejecutado.
+El workflow de build original permanece intacto. Su opción `publish=true`
+**reconstruye** y no sirve para promover este candidato exacto.
+
+`promotion-candidate.json` fija repositorio/ID, run/intento, artifact/ID, source,
+ZIP/tar/build-record hashes, plataforma, manifiesto/configuración y base Fedora.
+Cambiar el candidato requiere otra revisión; no hay inputs de repositorio, run,
+artifact o digest arbitrarios. La confirmación exacta se obtiene localmente con:
+
+```bash
+python3 -B workspaces/trustforge-dev/promote-candidate.py confirmation
+```
+
+Antes de ejecutar la promoción se requiere autorización explícita nueva y main
+revisado. El job `validate` solo dispone de `contents: read` y `actions: read`:
+contrasta metadata GitHub de origen (build exitoso, publish omitido), descarga el
+artifact por ID, comprueba los bytes completos y valida el OCI sin ejecutar código
+de la imagen. Extrae del ZIP únicamente los tres archivos esperados y rechaza
+duplicados, rutas extras, enlaces y tamaños inesperados.
+
+El job `publish` depende de ese resultado y del environment
+`trustforge-bootstrap-publish`, vuelve a validar el ZIP original transferido por
+artifact ID del run actual y solo entonces recibe credenciales en el paso de
+publicación. `skopeo copy --preserve-digests` copia el OCI archive; no lo carga ni
+lo reconstruye. Se exige el manifiesto inspeccionado tanto en el digest de salida
+como al leerlo por digest desde GHCR. SPDX se genera sobre el mismo archive local.
+Firma dedicada y dos atestaciones se vinculan a esa referencia inmutable.
+Los re-runs del promotor se deniegan; un fallo requiere revisión humana antes de
+otro dispatch. Una interrupción después del push puede dejar una imagen sin todas
+las evidencias: no supone aceptación ni despliegue; revisar la evidencia conservada.
+
+La identidad del promotor es distinta de la del builder. La política externa
+existente **no autoriza esa identidad nueva**. `promotion-policy.example.json`
+introduce el esquema 2 y permanece `approved=false`: `source_commit` es el commit
+original del candidato; `signer_commit` debe ser el commit real del workflow de
+promoción revisado en main, aprobado por el propietario junto con la identidad
+`trustforge-promote.yml@refs/heads/main` y el TrustedRoot independiente. No se
+modifican políticas externas al preparar esta PR.
+
+La verificación posterior usa el mismo `verify-bootstrap.py --policy ...` y las
+tres verificaciones tipadas existentes, sin omitir claims/tlog/SCT. El esquema 2
+contrasta además provenance de promoción, candidato y commit del firmante;
+conserva el builder/source/run originales. El esquema 1 mantiene su identidad
+anterior. VERIFIED continúa indicando `deployment_authorized=false`.
+
+Limitaciones operativas: el artifact original debe seguir disponible y no
+caducado (retención original: siete días); si falta, se deniega, sin fallback a
+rebuild u otra fuente. Skopeo debe existir en el runner; si falta, se aborta. La
+copia real con preservación de digest, la generación SPDX y la interoperabilidad
+de las firmas con GHCR siguen pendientes de una ejecución autorizada. Las pruebas
+offline y la validación del ZIP real conservado no acreditan esas operaciones.

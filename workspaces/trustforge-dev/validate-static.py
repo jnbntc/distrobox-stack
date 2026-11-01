@@ -104,12 +104,14 @@ def lint_workflows(manual, static):
     assert set(static["on"]["pull_request"]["paths"]) == {
         "workspaces/trustforge-dev/**", ".github/workflows/trustforge-dev.yml",
         ".github/workflows/trustforge-static.yml",
+        ".github/workflows/trustforge-promote.yml",
     }
     assert static["permissions"] == {"contents": "read"}
     assert set(static["jobs"]) == {"static"}
     assert static["jobs"]["static"]["permissions"] == {"contents": "read"}
     static_steps = static["jobs"]["static"]["steps"]
-    assert len(static_steps) == 2
+    assert len(static_steps) == 3
+    assert static_steps[2]["run"] == "python3 -B workspaces/trustforge-dev/test-promotion.py"
     assert static_steps[1]["run"] == "python3 -B workspaces/trustforge-dev/validate-static.py"
     for workflow in (manual, static):
         for job in workflow["jobs"].values():
