@@ -9,7 +9,9 @@ import contextlib
 import copy
 import hashlib
 import importlib.util
+import io
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -32,6 +34,7 @@ def load_module(name, filename):
 renderer = load_module("manifest_renderer", "render-manifest.py")
 bootstrap = load_module("bootstrap_verifier", "verify-bootstrap.py")
 maker = load_module("provenance_maker", "make-provenance.py")
+intent = load_module("publication_intent", "check-publication-intent.py")
 CONTRACT = bootstrap.strict_json((HERE / "contract.json").read_text())
 IMAGE = CONTRACT["output"]["repository"] + "@sha256:" + "a" * 64
 POLICY = bootstrap.strict_json((HERE / "trust-policy.example.json").read_text())
@@ -76,6 +79,9 @@ def lint_workflows(manual, static):
     assert set(manual["on"]) == {"workflow_dispatch"}
     publish_input = manual["on"]["workflow_dispatch"]["inputs"]["publish"]
     assert publish_input["type"] == "boolean" and publish_input["default"] is False
+    confirmation = manual["on"]["workflow_dispatch"]["inputs"]["publication_confirmation"]
+    assert confirmation["type"] == "string" and confirmation["default"] == ""
+    assert confirmation["required"] is False
     assert manual["permissions"] == {"contents": "read"}
     assert set(manual["jobs"]) == {"build", "publish"}
     build, publish = manual["jobs"]["build"], manual["jobs"]["publish"]
@@ -85,6 +91,14 @@ def lint_workflows(manual, static):
     assert publish["permissions"] == {"contents": "read", "packages": "write", "id-token": "write"}
     assert publish["needs"] == "build"
     assert publish["environment"] == "trustforge-bootstrap-publish"
+    for job in (build, publish):
+        assert job["steps"][0]["uses"].startswith("actions/checkout@")
+        gate = job["steps"][1]
+        assert gate.get("run") == "python3 -B workspaces/trustforge-dev/check-publication-intent.py"
+        assert gate.get("env") == {
+            "TF_PUBLISH": "${{ inputs.publish }}",
+            "TF_PUBLICATION_CONFIRMATION": "${{ inputs.publication_confirmation }}",
+        }
     assert set(static["on"]) == {"pull_request", "workflow_dispatch"}
     assert static["on"]["pull_request"]["branches"] == ["main"]
     assert set(static["on"]["pull_request"]["paths"]) == {
@@ -290,6 +304,67 @@ class WorkspaceContract(unittest.TestCase):
             if mutate == "static-command": static["jobs"]["static"]["steps"][1]["run"] = "podman build ."
             with self.subTest(mutate=mutate), self.assertRaises(AssertionError):
                 lint_workflows(manual, static)
+
+
+class PublicationIntent(unittest.TestCase):
+    def context(self, publish="true"):
+        return {
+            "GITHUB_REPOSITORY": "jnbntc/distrobox-stack", "GITHUB_REF": "refs/heads/main",
+            "GITHUB_EVENT_NAME": "workflow_dispatch", "GITHUB_WORKFLOW_REF": intent.WORKFLOW,
+            "GITHUB_SHA": "b" * 40, "GITHUB_WORKFLOW_SHA": "b" * 40,
+            "GITHUB_RUN_ID": "123", "GITHUB_RUN_ATTEMPT": "1", "TF_PUBLISH": publish,
+            "TF_PUBLICATION_CONFIRMATION": "PUBLISH " + intent.WORKFLOW + " " + "b" * 40,
+        }
+
+    def test_candidate_and_exact_publication_intent(self):
+        env = self.context("false"); env["TF_PUBLICATION_CONFIRMATION"] = ""
+        self.assertFalse(intent.check(env)["publication_intent_confirmed"])
+        result = intent.check(self.context())
+        self.assertTrue(result["publication_intent_confirmed"])
+        self.assertEqual(result["run_id"], "123")
+        self.assertFalse(result["cryptographic_verification"])
+        self.assertFalse(result["deployment_authorized"])
+
+    def test_wrong_confirmation_and_publish_inputs_denied(self):
+        env = self.context()
+        for value in ("", "PUBLISH", env["TF_PUBLICATION_CONFIRMATION"] + "\n",
+                      env["TF_PUBLICATION_CONFIRMATION"].replace("b" * 40, "a" * 40),
+                      env["TF_PUBLICATION_CONFIRMATION"].replace("main", "other")):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                intent.check({**env, "TF_PUBLICATION_CONFIRMATION": value})
+        for value in (None, "True", "1", ""):
+            with self.subTest(publish=value), self.assertRaises(ValueError):
+                intent.check({**env, "TF_PUBLISH": value})
+
+    def test_changed_execution_identity_denied(self):
+        for key, value in {
+            "GITHUB_REPOSITORY": "other/repo", "GITHUB_REF": "refs/tags/main",
+            "GITHUB_EVENT_NAME": "push", "GITHUB_WORKFLOW_REF": "other-workflow",
+            "GITHUB_SHA": "invalid", "GITHUB_WORKFLOW_SHA": "a" * 40,
+            "GITHUB_RUN_ID": "", "GITHUB_RUN_ATTEMPT": "0",
+        }.items():
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                intent.check({**self.context(), key: value})
+
+    def test_cli_failure_does_not_echo_untrusted_confirmation(self):
+        env = {**self.context(), "TF_PUBLICATION_CONFIRMATION": "fixture-private-value"}
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.dict(os.environ, env, clear=True), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            self.assertEqual(intent.main(), 1)
+        self.assertEqual(out.getvalue(), "")
+        self.assertIn("Publication intent rejected", err.getvalue())
+        self.assertNotIn("fixture-private-value", err.getvalue())
+
+    def test_missing_or_misbound_workflow_gate_denied(self):
+        for role in ("build", "publish"):
+            for mutate in ("remove", "input", "order"):
+                manual = bootstrap.strict_json(MANUAL.read_text())
+                steps = manual["jobs"][role]["steps"]
+                if mutate == "remove": del steps[1]
+                if mutate == "input": steps[1]["env"]["TF_PUBLICATION_CONFIRMATION"] = "yes"
+                if mutate == "order": steps[1], steps[2] = steps[2], steps[1]
+                with self.subTest(role=role, mutate=mutate), self.assertRaises(AssertionError):
+                    lint_workflows(manual, bootstrap.strict_json(STATIC.read_text()))
 
 
 class BootstrapVerification(unittest.TestCase):
