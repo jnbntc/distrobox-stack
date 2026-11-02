@@ -5,6 +5,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -228,6 +229,64 @@ class Promotion(unittest.TestCase):
         self.assertLess(script.index('published.manifest.json | sha256sum -c -'),script.index('cosign sign'))
         self.assertEqual(script.count('cosign attest --yes'),2)
         self.assertIn('io.trustforge.repository=ghcr.io/jnbntc/trustforge-dev',script)
+
+    def test_publisher_auth_is_shared_private_and_not_uploaded(self):
+        workflow=b.strict_json((HERE.parents[1]/'.github/workflows/trustforge-promote.yml').read_text())
+        read,publish=workflow['jobs']['validate'],workflow['jobs']['publish']
+        self.assertNotIn('GHCR_TOKEN',json.dumps(read))
+        self.assertEqual(publish['permissions'],{'contents':'read','actions':'read','packages':'write','id-token':'write'})
+        self.assertEqual([i for i,s in enumerate(publish['steps']) if 'GHCR_TOKEN' in s.get('env',{})],[5])
+        script=publish['steps'][5]['run']
+        self.assertIn('export DOCKER_CONFIG="$authdir"',script)
+        self.assertIn('authfile="$DOCKER_CONFIG/config.json"',script)
+        self.assertIn('umask 077',script)
+        self.assertIn('chmod 700 "$authdir"',script)
+        self.assertIn('chmod 600 "$authfile"',script)
+        self.assertIn("trap 'rm -rf -- \"$authdir\"' EXIT",script)
+        self.assertLess(script.index("trap 'rm -rf"),script.index('printf \'%s\' "$GHCR_TOKEN"'))
+        self.assertLess(script.index('export DOCKER_CONFIG'),script.index('skopeo login'))
+        self.assertIn('skopeo login --authfile "$authfile" --username "$GHCR_ACTOR" --password-stdin ghcr.io',script)
+        self.assertNotIn('--registry-password',script)
+        self.assertNotIn('set -x',script)
+        for step in publish['steps']:
+            if step.get('uses','').startswith('actions/upload-artifact@'):
+                for forbidden in ('authdir','authfile','config.json','RUNNER_TEMP','DOCKER_CONFIG'):
+                    self.assertNotIn(forbidden,step['with']['path'])
+
+    def test_auth_block_propagation_permissions_and_cleanup_without_real_tools(self):
+        # Exercise only shell auth setup with a local login stub and dummy data.
+        # Neither Cosign, Syft, Skopeo, a registry nor a real token is used.
+        w=b.strict_json((HERE.parents[1]/'.github/workflows/trustforge-promote.yml').read_text())
+        script=w['jobs']['publish']['steps'][5]['run']
+        block=script[script.index('set +x'):script.index('\nskopeo copy')]
+        stub='''set -euo pipefail
+skopeo() {
+  test "$1" = login
+  test "$2" = --authfile
+  test "$3" = "$DOCKER_CONFIG/config.json"
+  test "$6" = --password-stdin
+  printf '%s' "$DOCKER_CONFIG" > "$OBSERVED_PATH"
+  python3 -c 'import json,os,sys; from pathlib import Path; p=Path(os.environ["DOCKER_CONFIG"]); assert p.stat().st_mode & 0o777 == 0o700; f=p/"config.json"; assert f.stat().st_mode & 0o777 == 0o600; value=sys.stdin.read(); assert value==os.environ["GHCR_TOKEN"]; f.write_text(json.dumps({"auths":{"ghcr.io":{"auth":"fixture-only-not-a-credential"}}}))'
+  if test "$AUTH_CASE" = login-failure; then return 23; fi
+}
+'''
+        child='''
+python3 -c 'import json,os; from pathlib import Path; p=Path(os.environ["DOCKER_CONFIG"]); assert p.stat().st_mode & 0o777 == 0o700; f=p/"config.json"; assert f.stat().st_mode & 0o777 == 0o600; assert json.loads(f.read_text())["auths"]["ghcr.io"]["auth"]=="fixture-only-not-a-credential"'
+if test "$AUTH_CASE" = later-failure; then exit 19; fi
+if test "$AUTH_CASE" = term; then kill -TERM $$; fi
+'''
+        for mode,code in [('success',0),('login-failure',23),('later-failure',19),('term',143)]:
+            with self.subTest(mode=mode),tempfile.TemporaryDirectory() as temp:
+                directory=Path(temp); observed=directory/'observed-path'
+                env={**os.environ,'RUNNER_TEMP':temp,'GHCR_ACTOR':'fixture-user',
+                     'GHCR_TOKEN':'fixture-only-not-a-token','OBSERVED_PATH':str(observed),'AUTH_CASE':mode}
+                result=subprocess.run(['bash'],input=stub+block+child,env=env,text=True,capture_output=True)
+                self.assertEqual(result.returncode,code,result.stderr)
+                authdir=Path(observed.read_text())
+                self.assertEqual(authdir.parent,directory)
+                self.assertFalse(authdir.exists(),'credential directory survived EXIT trap')
+                self.assertNotIn(env['GHCR_TOKEN'],result.stdout+result.stderr)
+                self.assertNotIn('fixture-only-not-a-credential',result.stdout+result.stderr)
 
 
 if __name__ == '__main__':
