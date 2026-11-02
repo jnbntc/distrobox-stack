@@ -1,0 +1,12 @@
+{
+  "schema_version": 2,
+  "approved": false,
+  "issuer": "https://token.actions.githubusercontent.com",
+  "identity": "https://github.com/jnbntc/distrobox-stack/.github/workflows/trustforge-promote.yml@refs/heads/main",
+  "repository": "jnbntc/distrobox-stack",
+  "workflow_ref": "refs/heads/main",
+  "trigger": "workflow_dispatch",
+  "source_commit": "89b4ca3b159914fc9e8cb60853907d57cfe9f406",
+  "signer_commit": null,
+  "trusted_root_sha256": null
+}

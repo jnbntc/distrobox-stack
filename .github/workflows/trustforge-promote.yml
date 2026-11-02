@@ -1,0 +1,127 @@
+{
+  "name": "trustforge-dev promote inspected candidate (manual only)",
+  "on": {
+    "workflow_dispatch": {
+      "inputs": {
+        "confirmation": {
+          "description": "Exact confirmation from python3 workspaces/trustforge-dev/promote-candidate.py confirmation; identifies source run/artifact/tar/manifest",
+          "type": "string",
+          "required": true
+        }
+      }
+    }
+  },
+  "permissions": {
+    "contents": "read"
+  },
+  "concurrency": {
+    "group": "trustforge-bootstrap-candidate-promotion",
+    "cancel-in-progress": false
+  },
+  "env": {
+    "TF_PROMOTION_CONFIRMATION": "${{ inputs.confirmation }}"
+  },
+  "jobs": {
+    "validate": {
+      "if": "github.ref == 'refs/heads/main'",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 30,
+      "permissions": {
+        "contents": "read",
+        "actions": "read"
+      },
+      "outputs": {
+        "artifact_id": "${{ steps.transfer.outputs.artifact-id }}"
+      },
+      "steps": [
+        {
+          "uses": "actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09",
+          "with": {
+            "persist-credentials": false
+          }
+        },
+        {
+          "name": "Authenticate origin, download exact artifact and validate complete bytes",
+          "env": {
+            "GH_TOKEN": "${{ github.token }}"
+          },
+          "run": "set -euo pipefail\nmkdir -m 700 promotion-input\ngh api repos/jnbntc/distrobox-stack/actions/runs/41344731623 > promotion-input/source-run.json\ngh api repos/jnbntc/distrobox-stack/actions/artifacts/13098563945 > promotion-input/source-artifact.json\ngh api repos/jnbntc/distrobox-stack/actions/runs/41344731623/attempts/1/jobs > promotion-input/source-jobs.json\npython3 -B workspaces/trustforge-dev/promote-candidate.py origin\ngh api repos/jnbntc/distrobox-stack/actions/artifacts/13098563945/zip > promotion-input/candidate.zip\npython3 -B workspaces/trustforge-dev/promote-candidate.py validate > validated.json"
+        },
+        {
+          "id": "transfer",
+          "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+          "with": {
+            "name": "validated-promotion-input",
+            "path": "promotion-input/",
+            "if-no-files-found": "error",
+            "retention-days": 1
+          }
+        }
+      ]
+    },
+    "publish": {
+      "needs": "validate",
+      "if": "github.ref == 'refs/heads/main'",
+      "environment": "trustforge-bootstrap-publish",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 30,
+      "permissions": {
+        "contents": "read",
+        "actions": "read",
+        "packages": "write",
+        "id-token": "write"
+      },
+      "steps": [
+        {
+          "uses": "actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09",
+          "with": {
+            "persist-credentials": false
+          }
+        },
+        {
+          "uses": "actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0",
+          "with": {
+            "artifact-ids": "${{ needs.validate.outputs.artifact_id }}",
+            "merge-multiple": true,
+            "path": "promotion-input"
+          }
+        },
+        {
+          "name": "Revalidate original ZIP/tar after job transfer, before credentials",
+          "run": "python3 -B workspaces/trustforge-dev/promote-candidate.py validate > validated.json"
+        },
+        {
+          "uses": "sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6",
+          "with": {
+            "cosign-release": "v3.1.4",
+            "use-sudo": "false"
+          }
+        },
+        {
+          "uses": "anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610",
+          "with": {
+            "syft-version": "v1.55.0"
+          }
+        },
+        {
+          "name": "Preserve manifest, publish exact candidate, sign and bind evidence",
+          "env": {
+            "GHCR_TOKEN": "${{ github.token }}",
+            "GHCR_ACTOR": "${{ github.actor }}"
+          },
+          "run": "set -euo pipefail\ncommand -v skopeo\nprintf '%s  %s\\n' '424e2c97d0b45fd7a6b608a87f090f35633f4c23ece5f092d48bba11aaf4bbfa' \"$(command -v cosign)\" | sha256sum -c -\n# SPDX scans the exact validated local archive, never a mutable registry tag.\nsyft scan oci-archive:candidate/trustforge-dev.oci.tar -o spdx-json=workspace.sbom.spdx.json\nauthfile=$(mktemp \"$RUNNER_TEMP/trustforge-promotion-auth.XXXXXX\")\nchmod 600 \"$authfile\"\nprintf '{\"auths\":{}}\\n' > \"$authfile\"\ntrap 'rm -f \"$authfile\"' EXIT\nprintf '%s' \"$GHCR_TOKEN\" | skopeo login --authfile \"$authfile\" --username \"$GHCR_ACTOR\" --password-stdin ghcr.io\nskopeo copy --preserve-digests --digestfile workspace.digest --authfile \"$authfile\" \\\n  oci-archive:candidate/trustforge-dev.oci.tar \\\n  docker://ghcr.io/jnbntc/trustforge-dev:candidate-41344731623-13098563945\ntest \"$(cat workspace.digest)\" = 'sha256:fa4db36b277846092b2d4b65e3427cd7039e5397775e4f8742dc2924ab19dbb2'\nimage='ghcr.io/jnbntc/trustforge-dev@sha256:fa4db36b277846092b2d4b65e3427cd7039e5397775e4f8742dc2924ab19dbb2'\nskopeo inspect --authfile \"$authfile\" --raw \"docker://$image\" > published.manifest.json\nprintf '%s  %s\\n' 'fa4db36b277846092b2d4b65e3427cd7039e5397775e4f8742dc2924ab19dbb2' published.manifest.json | sha256sum -c -\npython3 -B workspaces/trustforge-dev/promote-candidate.py provenance --image \"$image\" > workspace.provenance.json\ncosign sign --yes --new-bundle-format=true -a io.trustforge.repository=ghcr.io/jnbntc/trustforge-dev \"$image\"\ncosign attest --yes --predicate workspace.sbom.spdx.json --type spdxjson \"$image\"\ncosign attest --yes --predicate workspace.provenance.json --type https://github.com/jnbntc/distrobox-stack/workspaces/trustforge-dev/provenance/v1 \"$image\"\n{\n  printf '%s\\n' \"$image\"\n  echo 'Promoted original candidate without rebuild. Independent signature/SPDX/provenance verification with locally approved schema-2 policy and TrustedRoot is still required. Deployment is not authorized.'\n} >> \"$GITHUB_STEP_SUMMARY\""
+        },
+        {
+          "if": "always()",
+          "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+          "with": {
+            "name": "trustforge-dev-promotion-evidence",
+            "path": "validated.json\ncandidate/workspace.build.json\nworkspace.digest\npublished.manifest.json\nworkspace.sbom.spdx.json\nworkspace.provenance.json",
+            "if-no-files-found": "warn",
+            "retention-days": 30
+          }
+        }
+      ]
+    }
+  }
+}

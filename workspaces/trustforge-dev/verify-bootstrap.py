@@ -17,6 +17,8 @@ HERE = Path(__file__).resolve().parent
 REPOSITORY = "ghcr.io/jnbntc/trustforge-dev"
 WORKFLOW = "jnbntc/distrobox-stack/.github/workflows/trustforge-dev.yml@refs/heads/main"
 IDENTITY = "https://github.com/" + WORKFLOW
+PROMOTION_WORKFLOW = "jnbntc/distrobox-stack/.github/workflows/trustforge-promote.yml@refs/heads/main"
+PROMOTION_IDENTITY = "https://github.com/" + PROMOTION_WORKFLOW
 ISSUER = "https://token.actions.githubusercontent.com"
 PROVENANCE = "https://github.com/jnbntc/distrobox-stack/workspaces/trustforge-dev/provenance/v1"
 SPDX = "https://spdx.dev/Document"
@@ -69,16 +71,26 @@ def check_policy(policy):
     require(isinstance(policy, dict), "policy must be an object")
     expected = {"schema_version", "approved", "issuer", "identity", "repository",
                 "workflow_ref", "trigger", "source_commit", "trusted_root_sha256"}
+    version = policy.get("schema_version")
+    require(type(version) is int and version in (1, 2), "invalid policy version")
+    if version == 2:
+        expected.add("signer_commit")
     require(set(policy) == expected, "unexpected policy keys")
-    require(policy["schema_version"] == 1 and type(policy["schema_version"]) is int, "invalid policy version")
     require(policy["approved"] is True, "trust policy requires explicit human approval")
     require(policy["issuer"] == ISSUER, "unexpected issuer")
-    require(policy["identity"] == IDENTITY, "unexpected signer workflow identity")
+    require(policy["identity"] == (IDENTITY if version == 1 else PROMOTION_IDENTITY), "unexpected signer workflow identity")
     require(policy["repository"] == "jnbntc/distrobox-stack", "unexpected source repository")
     require(policy["workflow_ref"] == "refs/heads/main", "unexpected source ref")
     require(policy["trigger"] == "workflow_dispatch", "unexpected workflow trigger")
     require(isinstance(policy["source_commit"], str) and COMMIT.fullmatch(policy["source_commit"]), "source commit not approved")
     require(isinstance(policy["trusted_root_sha256"], str) and HEX.fullmatch(policy["trusted_root_sha256"]), "trusted root not approved")
+    if version == 2:
+        require(isinstance(policy["signer_commit"], str) and COMMIT.fullmatch(policy["signer_commit"]), "promotion signer commit not approved")
+        require(policy["source_commit"] == promotion_candidate()["source_commit"], "unreviewed promotion source")
+
+
+def promotion_candidate():
+    return strict_json((HERE / "promotion-candidate.json").read_text())
 
 
 def verified_documents(raw):
@@ -193,17 +205,34 @@ def check_predicates(sboms, provenances, policy, contract, image):
         run = provenance.get("invocation", {})
         require(isinstance(run, dict) and re.fullmatch(r"[1-9][0-9]*", str(run.get("run_id", ""))), "missing build run")
         require(re.fullmatch(r"[1-9][0-9]*", str(run.get("attempt", ""))), "missing build attempt")
+        if policy["schema_version"] == 2:
+            candidate = promotion_candidate()
+            require(image == REPOSITORY + "@" + candidate["manifest_digest"], "unreviewed promoted manifest")
+            require(run == {"run_id": str(candidate["run_id"]), "attempt": str(candidate["attempt"])}, "wrong promoted build invocation")
+            promotion = provenance.get("promotion")
+            require(isinstance(promotion, dict) and set(promotion) == {"workflow", "invocation", "candidate"}, "missing promotion provenance")
+            require(promotion["candidate"] == candidate, "promotion candidate mismatch")
+            require(promotion["workflow"] == {
+                "id": PROMOTION_IDENTITY, "workflow_ref": PROMOTION_WORKFLOW,
+                "workflow_sha": policy["signer_commit"], "event": "workflow_dispatch",
+            }, "promotion signer mismatch")
+            invocation = promotion["invocation"]
+            require(isinstance(invocation, dict) and set(invocation) == {"run_id", "attempt"}, "invalid promotion invocation")
+            require(isinstance(invocation["run_id"], str) and re.fullmatch(r"[1-9][0-9]*", invocation["run_id"])
+                    and invocation["attempt"] == "1", "invalid promotion run/attempt")
 
 
 def cosign_commands(binary, root, policy, image):
     image_digest(image)
     check_policy(policy)
+    if policy["schema_version"] == 2:
+        require(image == REPOSITORY + "@" + promotion_candidate()["manifest_digest"], "unreviewed promotion image")
     common = [
         "--certificate-identity", policy["identity"],
         "--certificate-oidc-issuer", policy["issuer"],
         "--certificate-github-workflow-repository", policy["repository"],
         "--certificate-github-workflow-ref", policy["workflow_ref"],
-        "--certificate-github-workflow-sha", policy["source_commit"],
+        "--certificate-github-workflow-sha", policy.get("signer_commit", policy["source_commit"]),
         "--certificate-github-workflow-trigger", policy["trigger"],
         "--trusted-root", str(root), "--check-claims=true",
         "--insecure-ignore-tlog=false", "--insecure-ignore-sct=false",
@@ -250,6 +279,7 @@ def verify(image, policy, contract, binary, root):
         "verification": "VERIFIED",
         "image": image, "source_commit": policy["source_commit"],
         "identity": policy["identity"], "issuer": policy["issuer"],
+        **({"signer_commit": policy["signer_commit"]} if policy["schema_version"] == 2 else {}),
         "trusted_root_sha256": policy["trusted_root_sha256"],
         "cosign_version": contract["bootstrap"]["cosign"]["version"],
         "image_signature_predicate": IMAGE_SIGNATURE,

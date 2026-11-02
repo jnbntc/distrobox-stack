@@ -1,0 +1,19 @@
+{
+  "repository": "jnbntc/distrobox-stack",
+  "repository_id": 1310432559,
+  "run_id": 41344731623,
+  "attempt": 1,
+  "artifact_id": 13098563945,
+  "artifact_name": "trustforge-dev-candidate",
+  "source_commit": "89b4ca3b159914fc9e8cb60853907d57cfe9f406",
+  "platform": "linux/amd64",
+  "artifact_size": 460757282,
+  "artifact_sha256": "c984d8d9038c25de1bfd2bdf23e0210b6bbf80cd649698a61d206e72462c0b58",
+  "tar_size": 479235584,
+  "tar_sha256": "e382a9b1ede2d76a9a0b294a544b3d6c645b16ac143a1f8a8ced80973c11c1f5",
+  "build_record_sha256": "959f0ab197848f14d6c65e5a98e724f5d3f59a4d3928c0c558f4cbef4b419e1e",
+  "manifest_digest": "sha256:fa4db36b277846092b2d4b65e3427cd7039e5397775e4f8742dc2924ab19dbb2",
+  "config_digest": "sha256:dd3986d1c3b0895a428a98ea5a8ada8d19893d9c12e7bfc5d0382ab87fe44534",
+  "base_manifest_digest": "sha256:691fb31f8934a0ea759febe7a0aa5e81a3e6c27d58c279c091bffa91e3fb3abb",
+  "base_layer_digest": "sha256:6917ca22f3287d135b4268e8452baf59e4f2d921a4aa13d1547b0ce7ef4eff59"
+}
