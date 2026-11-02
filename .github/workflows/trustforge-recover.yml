@@ -1,0 +1,133 @@
+{
+  "name": "trustforge-dev evidence-only recovery (manual only)",
+  "on": {
+    "workflow_dispatch": {
+      "inputs": {
+        "confirmation": {
+          "description": "RECOVER candidate confirmation plus policy=sha256:<canonical approved schema-3 policy hash>",
+          "required": true,
+          "type": "string"
+        },
+        "policy_sha256": {
+          "description": "Canonical SHA-256 of externally approved schema-3 policy; template is not approval",
+          "required": true,
+          "type": "string"
+        }
+      }
+    }
+  },
+  "permissions": {
+    "contents": "read"
+  },
+  "concurrency": {
+    "group": "trustforge-bootstrap-candidate-promotion",
+    "cancel-in-progress": false
+  },
+  "env": {
+    "TF_RECOVERY_CONFIRMATION": "${{ inputs.confirmation }}",
+    "TF_POLICY_SHA256": "${{ inputs.policy_sha256 }}"
+  },
+  "jobs": {
+    "candidate": {
+      "if": "github.ref == 'refs/heads/main'",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 30,
+      "permissions": {
+        "contents": "read",
+        "actions": "read"
+      },
+      "outputs": {
+        "artifact_id": "${{ steps.transfer.outputs.artifact-id }}"
+      },
+      "steps": [
+        {
+          "uses": "actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09",
+          "with": {
+            "persist-credentials": false
+          }
+        },
+        {
+          "name": "Authenticate origin, download exact artifact and validate complete bytes",
+          "env": {
+            "GH_TOKEN": "${{ github.token }}"
+          },
+          "run": "set -euo pipefail\nmkdir -m 700 promotion-input\ngh api repos/jnbntc/distrobox-stack/actions/runs/41344731623 > promotion-input/source-run.json\ngh api repos/jnbntc/distrobox-stack/actions/artifacts/13098563945 > promotion-input/source-artifact.json\ngh api repos/jnbntc/distrobox-stack/actions/runs/41344731623/attempts/1/jobs > promotion-input/source-jobs.json\npython3 -B workspaces/trustforge-dev/recover-evidence.py origin\ngh api repos/jnbntc/distrobox-stack/actions/artifacts/13098563945/zip > promotion-input/candidate.zip\npython3 -B workspaces/trustforge-dev/recover-evidence.py candidate > validated.json"
+        },
+        {
+          "id": "transfer",
+          "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+          "with": {
+            "name": "recovery-candidate-input",
+            "path": "promotion-input/",
+            "if-no-files-found": "error",
+            "retention-days": 1
+          }
+        }
+      ]
+    },
+    "signer": {
+      "needs": "candidate",
+      "if": "github.ref == 'refs/heads/main'",
+      "environment": "trustforge-bootstrap-publish",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 30,
+      "permissions": {
+        "contents": "read",
+        "actions": "read",
+        "packages": "write",
+        "id-token": "write"
+      },
+      "steps": [
+        {
+          "uses": "actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09",
+          "with": {
+            "persist-credentials": false
+          }
+        },
+        {
+          "uses": "actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0",
+          "with": {
+            "artifact-ids": "${{ needs.candidate.outputs.artifact_id }}",
+            "merge-multiple": true,
+            "path": "promotion-input"
+          }
+        },
+        {
+          "name": "Validate exact original candidate again",
+          "run": "python3 -B workspaces/trustforge-dev/recover-evidence.py candidate"
+        },
+        {
+          "uses": "sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6",
+          "with": {
+            "cosign-release": "v3.1.4",
+            "use-sudo": "false"
+          }
+        },
+        {
+          "uses": "anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610",
+          "with": {
+            "syft-version": "v1.55.0"
+          }
+        },
+        {
+          "name": "Authenticate inventory; create only missing evidence; verify final state",
+          "env": {
+            "GHCR_TOKEN": "${{ github.token }}",
+            "GHCR_ACTOR": "${{ github.actor }}"
+          },
+          "run": "set -euo pipefail\nset +x\numask 077\nauthdir=$(mktemp -d \"$RUNNER_TEMP/trustforge-promotion-auth.XXXXXX\")\ntrap 'rm -rf -- \"$authdir\" recovery-private' EXIT\ntrap 'exit 130' INT\ntrap 'exit 143' TERM\nchmod 700 \"$authdir\"\nexport DOCKER_CONFIG=\"$authdir\"\nauthfile=\"$DOCKER_CONFIG/config.json\"\nprintf '{\"auths\":{}}\\n' > \"$authfile\"\nchmod 600 \"$authfile\"\nprintf '%s' \"$GHCR_TOKEN\" | skopeo login --authfile \"$authfile\" --username \"$GHCR_ACTOR\" --password-stdin ghcr.io\nchmod 600 \"$authfile\"\npython3 -B workspaces/trustforge-dev/recover-evidence.py prepare\npython3 -B workspaces/trustforge-dev/recover-evidence.py recover --cosign \"$(command -v cosign)\""
+        },
+        {
+          "if": "always()",
+          "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+          "with": {
+            "name": "trustforge-dev-recovery-evidence",
+            "path": "recovery-evidence/",
+            "if-no-files-found": "warn",
+            "retention-days": 30
+          }
+        }
+      ]
+    }
+  }
+}

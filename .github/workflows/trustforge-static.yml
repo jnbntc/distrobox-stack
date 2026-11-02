@@ -9,7 +9,8 @@
         "workspaces/trustforge-dev/**",
         ".github/workflows/trustforge-dev.yml",
         ".github/workflows/trustforge-static.yml",
-        ".github/workflows/trustforge-promote.yml"
+        ".github/workflows/trustforge-promote.yml",
+        ".github/workflows/trustforge-recover.yml"
       ]
     },
     "workflow_dispatch": {}
@@ -38,6 +39,10 @@
         {
           "name": "Offline candidate promotion negative cases",
           "run": "python3 -B workspaces/trustforge-dev/test-promotion.py"
+        },
+        {
+          "name": "Evidence recovery negative cases",
+          "run": "python3 -B workspaces/trustforge-dev/test-recovery.py"
         }
       ]
     }

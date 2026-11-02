@@ -176,3 +176,66 @@ Esta corrección cambia el commit del promotor. Después de revisión/integraci�
 el propietario deberá aprobar expresamente el nuevo `signer_commit` y la política
 externa correspondiente antes de autorizar cualquier operación. La política
 esquema 2 anterior permanece intacta y no autoriza el workflow modificado.
+
+### Recuperación separada: preparación, no autorización
+
+`trustforge-recover.yml` prepara una recuperación de evidencias sobre el digest
+ya publicado, sin `skopeo copy`, build, load o ejecución de la imagen. Comparte
+el grupo de concurrencia con el promotor. El job `candidate` solo tiene permisos
+de lectura de código/Actions y revalida el ZIP original fijado; solo `signer`,
+protegido por environment y main, recibe `packages: write` e `id-token: write`.
+Los dos jobs requieren la confirmación RECOVER y el hash canónico de una política
+externa de esquema 3 expresamente aprobada; el ejemplo sigue `approved=false`.
+No se cambia ninguna política externa al preparar esta ruta.
+
+La política 3 distingue el source original, la identidad/commit del nuevo workflow
+`trustforge-recover.yml` y el firmante promotor anterior autorizado (commit
+e9b7b7b393f34b4027a0910ea58981b3e378f9e1). Esto permite conservar evidencias válidas
+anteriores sin exigir volver a firmarlas. Antes de cualquier ejecución, aprobar
+la política privada con el nuevo signer_commit real de main y el TrustedRoot
+previamente autenticado. Para obtener los inputs **sin firmar ni contactar GHCR**:
+
+```bash
+python3 -B workspaces/trustforge-dev/recover-evidence.py policy-hash --policy /ruta/privada/policy-v3.json
+python3 -B workspaces/trustforge-dev/recover-evidence.py confirmation --policy /ruta/privada/policy-v3.json
+```
+
+El hash es SHA-256 del JSON con claves ordenadas y separadores `,`/`:` (sin newline),
+no el hash de los bytes con formato de la política 2. El hash externo y la
+confirmación exacta vinculan la aprobación a los valores de la política runtime;
+esta se conserva solo temporalmente en el runner y no se sube como artefacto.
+El TrustedRoot público se obtiene por su hash previamente aprobado y se contrasta
+byte a byte; no se aprueba una raíz nueva ni se realiza TOFU.
+
+El inventario usa GET autenticado del manifiesto exacto y de todos los referrers
+OCI 1.1, sin filtro de tipo. Comprueba manifiestos/blobs y sujetos por digest y
+longitud. Cada bundle se autentica con Cosign 3.1.4 `verify-blob-attestation
+--bundle --digest --digestAlg sha256`, manteniendo identidad, issuer, workflow
+SHA/ref/trigger, TrustedRoot, claims, tlog y SCT. Solo después se aceptan las
+claims tipadas del payload autenticado. Esta interfaz está documentada en el
+[código oficial](https://github.com/sigstore/cosign/blob/v3.1.4/cmd/cosign/cli/verify/verify_blob_attestation.go).
+No se usa un error de `verify-attestation` como prueba de ausencia: [download
+attestation](https://github.com/sigstore/cosign/blob/v3.1.4/cmd/cosign/cli/download/attestation.go)
+puede omitir errores de bundles, por lo que no es un inventario autoritativo.
+
+Formatos legacy/fallback, tipos desconocidos, duplicados, paginación pendiente,
+errores de acceso, firmas inválidas o claims inconsistentes producen DENY. No
+hay deduplicación, borrado ni fallback permisivo. Se vuelve a contrastar el estado
+antes y después de cada generación; solo se crea el tipo faltante. Si aparece un
+cambio externo concurrente o un resultado incompleto, se detiene sin más escrituras.
+Un escritor externo fuera del grupo de concurrencia puede dejar duplicados:
+se detectan y rechazan, nunca se eliminan automáticamente.
+
+SPDX se genera sobre el archive original validado solo si falta; la nueva
+provenance conserva el builder original y añade el workflow/run de recuperación.
+Al terminar deben existir exactamente los tres tipos autenticados. La verificación
+posterior independiente de una política 3 usa `recover-evidence.py verify --policy
+/ruta/privada/policy-v3.json --root /ruta/TrustedRoot.json --cosign /ruta/cosign`
+desde un directorio privado, con credenciales de lectura GHCR compatibles en
+DOCKER_CONFIG. Este modo no firma ni modifica el registro.
+
+La interfaz OCI 1.1 y las firmas reales quedan NOT VERIFIED hasta una operación
+expresamente autorizada: si GHCR no ofrece inventario completo soportado, la ruta
+queda BLOCKED sin generar evidencias. El artifact original debe seguir disponible.
+Las pruebas de inventario/criptografía son simuladas; no acreditan interoperabilidad
+real. Tanto DENY como VERIFIED mantienen `deployment_authorized=false`.
