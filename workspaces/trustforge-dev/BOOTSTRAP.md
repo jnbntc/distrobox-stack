@@ -88,7 +88,10 @@ Referencias: [Cosign verify](https://docs.sigstore.dev/cosign/verifying/verify/)
 
 ## 7. Promoción del candidato inspeccionado, sin reconstrucción
 
-`trustforge-promote.yml` es una propuesta manual separada: no se ha ejecutado.
+`trustforge-promote.yml` es un workflow manual separado. El run 41380381655
+publicó el manifiesto inspeccionado, pero quedó INCOMPLETE / NOT VERIFIED al
+fallar la subida de la firma Cosign con UNAUTHORIZED; las atestaciones no se
+ejecutaron. No se autoriza despliegue por ese resultado parcial.
 El workflow de build original permanece intacto. Su opción `publish=true`
 **reconstruye** y no sirve para promover este candidato exacto.
 
@@ -136,6 +139,40 @@ anterior. VERIFIED continúa indicando `deployment_authorized=false`.
 Limitaciones operativas: el artifact original debe seguir disponible y no
 caducado (retención original: siete días); si falta, se deniega, sin fallback a
 rebuild u otra fuente. Skopeo debe existir en el runner; si falta, se aborta. La
-copia real con preservación de digest, la generación SPDX y la interoperabilidad
-de las firmas con GHCR siguen pendientes de una ejecución autorizada. Las pruebas
-offline y la validación del ZIP real conservado no acreditan esas operaciones.
+copia real conservó el digest y generó SPDX en el run 41380381655. La publicación
+de firma/atestaciones y la interoperabilidad criptográfica siguen pendientes;
+las pruebas offline no acreditan esas operaciones.
+
+### Autenticación compartida y recuperación pendiente
+
+El fallo dejó un authfile accesible solo a Skopeo, sin configurar el keychain de
+Cosign. El publicador usa ahora un directorio temporal `0700`, exportado como
+`DOCKER_CONFIG`, con `config.json` `0600`. Skopeo recibe ese mismo archivo mediante
+`--authfile`; los tres comandos Cosign heredan `DOCKER_CONFIG` en el mismo paso.
+El token sigue entrando por stdin, sin argumentos de credenciales ni trazas;
+el trap EXIT elimina el directorio, incluyendo fallos de login y de comandos
+posteriores. INT/TERM provocan salida y la misma limpieza. El archivo permanece
+fuera de las rutas de evidencia subidas. No cambian permisos de jobs o tokens.
+
+Compatibilidad comprobada en fuente oficial, sin ejecutar Cosign: [Cosign
+v3.1.4 RegistryOptions](https://github.com/sigstore/cosign/blob/v3.1.4/cmd/cosign/cli/options/registry.go)
+selecciona `authn.DefaultKeychain`; su [dependencia go-containerregistry
+v0.22.1](https://github.com/sigstore/cosign/blob/v3.1.4/go.mod) [carga
+DOCKER_CONFIG/config.json](https://github.com/google/go-containerregistry/blob/v0.22.1/pkg/authn/keychain.go).
+El formato `auths` escrito por Skopeo es compatible con ese Docker config.
+Las pruebas usan datos ficticios y un stub de login, nunca herramientas de firma
+ni credenciales reales; comprueban propagación, permisos y limpieza.
+
+**Recuperación bloqueada en este workflow:** todavía ejecuta `skopeo copy` sin
+condición. No usarlo para recuperar la imagen ya publicada: volvería a publicar
+las capas. Una recuperación segura debe primero exigir el manifiesto existente
+por su digest exacto, inventariar y verificar de forma autenticada las evidencias
+tipadas ya publicadas, y generar únicamente las faltantes sin duplicar firmas o
+atestaciones. Esos controles no existen aún; no se añade un modo que simplemente
+omita el push y vuelva a firmar todo. No se eliminan evidencias existentes y el
+resultado parcial continúa sin verificar ni autorizar despliegue.
+
+Esta corrección cambia el commit del promotor. Después de revisión/integración,
+el propietario deberá aprobar expresamente el nuevo `signer_commit` y la política
+externa correspondiente antes de autorizar cualquier operación. La política
+esquema 2 anterior permanece intacta y no autoriza el workflow modificado.
