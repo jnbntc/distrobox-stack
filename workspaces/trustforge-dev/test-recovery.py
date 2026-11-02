@@ -2,13 +2,18 @@
 """Directed offline tests; registry and crypto results are simulated, never real."""
 import base64
 import copy
+import contextlib
 import hashlib
 import importlib.util
+import io
 import json
+import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
+import urllib.error
 from unittest import mock
 
 HERE=Path(__file__).resolve().parent
@@ -63,7 +68,8 @@ class Recovery(unittest.TestCase):
         create.assert_not_called()
         state={}
         def fail(role):raise subprocess.CalledProcessError(1,['not-executed'])
-        with self.assertRaises(subprocess.CalledProcessError):r.recover(lambda:state.copy(),fail)
+        with self.assertRaises(r.DiagnosticError) as raised:r.recover(lambda:state.copy(),fail)
+        self.assertEqual(r.error_report(raised.exception)['error_type'],'CalledProcessError')
 
     def test_complete_authenticated_inventory_not_generic_verify_output(self):
         env={'payloadType':'application/vnd.in-toto+json','payload':base64.b64encode(json.dumps({
@@ -176,6 +182,93 @@ class Recovery(unittest.TestCase):
         self.assertIn('export DOCKER_CONFIG="$authdir"',run)
         self.assertIn('recovery-private',run)
         self.assertEqual(w['jobs']['signer']['permissions'],{'contents':'read','actions':'read','packages':'write','id-token':'write'})
+
+
+class Diagnostics(unittest.TestCase):
+    def registry(self):
+        value=object.__new__(r.Registry);value.token='fixture-only-not-a-token';return value
+
+    def http_error(self,code,body=b'private-body'):
+        return urllib.error.HTTPError('https://ghcr.io/private?credential=fixture-token',code,
+                'Authorization: Bearer fixture-token',{'Authorization':'fixture-token'},io.BytesIO(body))
+
+    def test_referrers_404_retains_phase_status_and_denies_writes(self):
+        registry=self.registry();create=mock.Mock()
+        with mock.patch.object(r.Registry,'http',side_effect=self.http_error(404)):
+            with self.assertRaises(r.DiagnosticError) as raised:
+                r.recover(lambda:registry.get('referrers/'+r.C['manifest_digest']),create)
+        create.assert_not_called()
+        self.assertEqual(r.error_report(raised.exception),{'verification':'DENY','phase':'registry.referrers',
+                'error_code':'REGISTRY_HTTP_ERROR','error_type':'HTTPError','http_status':404,'deployment_authorized':False})
+
+    def test_only_valid_legacy_manifest_unknown_is_absent(self):
+        registry=self.registry();path='manifests/'+r.C['manifest_digest'].replace(':','-')+'.sig'
+        body=b'{"errors":[{"code":"MANIFEST_UNKNOWN","message":"fixture-token"}]}'
+        with mock.patch.object(r.Registry,'http',side_effect=self.http_error(404,body)):
+            self.assertEqual(registry.get(path,absent=True),(None,{}))
+        cases=[(404,b'not json','REGISTRY_404_RESPONSE_INVALID'),
+               (404,b'{"errors":[{"code":"NAME_UNKNOWN"}]}','REGISTRY_404_AMBIGUOUS'),
+               (403,body,'REGISTRY_HTTP_ERROR'),(500,body,'REGISTRY_HTTP_ERROR')]
+        for status,raw,code in cases:
+            with self.subTest(status=status,code=code),mock.patch.object(r.Registry,'http',side_effect=self.http_error(status,raw)):
+                with self.assertRaises(r.DiagnosticError) as raised:registry.get(path,absent=True)
+                report=r.error_report(raised.exception)
+                self.assertEqual(report['http_status'],status);self.assertEqual(report['error_code'],code)
+                self.assertEqual(report['phase'],'registry.legacy')
+                self.assertNotIn('fixture-token',json.dumps(report))
+
+    def test_error_payloads_never_include_messages_urls_or_sensitive_data(self):
+        errors=[self.http_error(403,b'certificate bundle fixture-token'),
+                FileNotFoundError('Authorization Bearer fixture-token /private/credential'),
+                ValueError('certificate bundle fixture-token')]
+        for error in errors:
+            report=r.error_report(error);raw=json.dumps(report)
+            if isinstance(error,urllib.error.HTTPError):self.assertTrue(error.closed)
+            for forbidden in ('fixture-token','Authorization','certificate','bundle','credential','https://'):
+                self.assertNotIn(forbidden,raw)
+            self.assertLessEqual(set(report),{'verification','phase','error_code','error_type','http_status','deployment_authorized'})
+            self.assertFalse(report['deployment_authorized'])
+        wrapped=r.DiagnosticError('unsafe value fixture-token','unsafe type fixture-token',999)
+        wrapped.phase='unsafe phase fixture-token'
+        report=r.error_report(wrapped)
+        self.assertEqual(report['phase'],'unknown');self.assertEqual(report['error_code'],'UNCLASSIFIED_ERROR')
+        self.assertEqual(report['error_type'],'Error');self.assertNotIn('http_status',report)
+
+    def test_registry_authentication_retains_http_status_without_auth_headers(self):
+        @r.diagnostic('registry.authentication','REGISTRY_AUTHENTICATION_FAILED')
+        def fail():raise self.http_error(401)
+        with self.assertRaises(r.DiagnosticError) as raised:fail()
+        report=r.error_report(raised.exception)
+        self.assertEqual(report['phase'],'registry.authentication');self.assertEqual(report['http_status'],401)
+        self.assertEqual(report['error_type'],'HTTPError');self.assertNotIn('fixture-token',json.dumps(report))
+
+    def test_untrusted_blob_redirect_is_closed_and_never_followed(self):
+        error=self.http_error(302);error.headers['Location']='https://untrusted.invalid/?credential=fixture-token'
+        opener=mock.Mock();opener.open.side_effect=error
+        with mock.patch.object(r.urllib.request,'build_opener',return_value=opener):
+            with self.assertRaises(r.DiagnosticError) as raised:self.registry().get('blobs/'+r.C['config_digest'])
+        report=r.error_report(raised.exception)
+        self.assertEqual(report['phase'],'registry.blob');self.assertEqual(report['error_code'],'BLOB_REDIRECT_UNTRUSTED')
+        self.assertEqual(report['http_status'],302);self.assertTrue(error.closed)
+        opener.open.assert_called_once();self.assertNotIn('fixture-token',json.dumps(report))
+
+    def test_main_persists_same_sanitized_report_and_never_reaches_crypto(self):
+        original=Path.cwd()
+        with tempfile.TemporaryDirectory() as tmp:
+            directory=Path(tmp);(directory/'recovery-evidence').mkdir()
+            policy=r.b.strict_json((HERE/'recovery-policy.example.json').read_text())
+            (directory/'policy.json').write_text(json.dumps(policy))
+            output=io.StringIO();error=io.StringIO()
+            try:
+                os.chdir(directory)
+                with mock.patch.object(sys,'argv',['recover-evidence.py','confirmation','--policy','policy.json']),\
+                     mock.patch.object(r,'verify_bundle') as crypto,contextlib.redirect_stdout(output),contextlib.redirect_stderr(error):
+                    self.assertEqual(r.main(),1);crypto.assert_not_called()
+            finally:os.chdir(original)
+            report=json.loads(error.getvalue())
+            self.assertEqual(report,json.loads((directory/'recovery-evidence/result.json').read_text()))
+            self.assertEqual(report['phase'],'policy.validation');self.assertEqual(report['error_code'],'POLICY_NOT_APPROVED')
+            self.assertEqual(output.getvalue(),'')
 
 
 if __name__=='__main__':unittest.main(verbosity=2)
