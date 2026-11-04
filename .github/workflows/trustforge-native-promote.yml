@@ -1,0 +1,134 @@
+{
+  "name": "trustforge-dev native OCI promotion (manual only)",
+  "on": {
+    "workflow_dispatch": {
+      "inputs": {
+        "confirmation": {
+          "description": "Exact PROMOTE-NATIVE confirmation including destination and approved policy hash",
+          "type": "string",
+          "required": true
+        },
+        "policy_sha256": {
+          "description": "Canonical SHA-256 of externally approved schema-4 policy",
+          "type": "string",
+          "required": true
+        }
+      }
+    }
+  },
+  "permissions": {
+    "contents": "read"
+  },
+  "concurrency": {
+    "group": "trustforge-bootstrap-candidate-promotion",
+    "cancel-in-progress": false
+  },
+  "env": {
+    "TF_NATIVE_CONFIRMATION": "${{ inputs.confirmation }}",
+    "TF_POLICY_SHA256": "${{ inputs.policy_sha256 }}",
+    "TF_DESTINATION": "${{ vars.TF_NATIVE_DESTINATION }}",
+    "TF_NAMESPACE_APPROVAL": "${{ vars.TF_NATIVE_NAMESPACE_APPROVAL }}"
+  },
+  "jobs": {
+    "validate": {
+      "if": "github.ref == 'refs/heads/main'",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 30,
+      "permissions": {
+        "contents": "read",
+        "actions": "read"
+      },
+      "outputs": {
+        "artifact_id": "${{ steps.transfer.outputs.artifact-id }}"
+      },
+      "steps": [
+        {
+          "uses": "actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09",
+          "with": {
+            "persist-credentials": false
+          }
+        },
+        {
+          "name": "Authenticate origin, download exact artifact and validate complete bytes",
+          "env": {
+            "GH_TOKEN": "${{ github.token }}"
+          },
+          "run": "set -euo pipefail\nmkdir -m 700 promotion-input\ngh api repos/jnbntc/distrobox-stack/actions/runs/41344731623 > promotion-input/source-run.json\ngh api repos/jnbntc/distrobox-stack/actions/artifacts/13098563945 > promotion-input/source-artifact.json\ngh api repos/jnbntc/distrobox-stack/actions/runs/41344731623/attempts/1/jobs > promotion-input/source-jobs.json\npython3 -B workspaces/trustforge-dev/promote-native.py origin\ngh api repos/jnbntc/distrobox-stack/actions/artifacts/13098563945/zip > promotion-input/candidate.zip\npython3 -B workspaces/trustforge-dev/promote-native.py validate > validated.json"
+        },
+        {
+          "id": "transfer",
+          "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+          "with": {
+            "name": "validated-promotion-input",
+            "path": "promotion-input/",
+            "if-no-files-found": "error",
+            "retention-days": 1
+          }
+        }
+      ]
+    },
+    "publish": {
+      "needs": "validate",
+      "if": "github.ref == 'refs/heads/main'",
+      "environment": "trustforge-bootstrap-publish",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 40,
+      "permissions": {
+        "contents": "read",
+        "actions": "read",
+        "id-token": "write"
+      },
+      "steps": [
+        {
+          "uses": "actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09",
+          "with": {
+            "persist-credentials": false
+          }
+        },
+        {
+          "uses": "actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0",
+          "with": {
+            "artifact-ids": "${{ needs.validate.outputs.artifact_id }}",
+            "merge-multiple": true,
+            "path": "promotion-input"
+          }
+        },
+        {
+          "name": "Revalidate original ZIP/tar after job transfer, before credentials",
+          "run": "python3 -B workspaces/trustforge-dev/promote-native.py validate > validated.json"
+        },
+        {
+          "uses": "sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6",
+          "with": {
+            "cosign-release": "v3.1.4",
+            "use-sudo": "false"
+          }
+        },
+        {
+          "uses": "anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610",
+          "with": {
+            "syft-version": "v1.55.0"
+          }
+        },
+        {
+          "name": "Promote once to a fresh native namespace; independently verify each evidence",
+          "env": {
+            "REGISTRY_USERNAME": "${{ secrets.TF_NATIVE_REGISTRY_USERNAME }}",
+            "REGISTRY_PASSWORD": "${{ secrets.TF_NATIVE_REGISTRY_PASSWORD }}"
+          },
+          "run": "set -euo pipefail\nset +x\numask 077\ncommand -v skopeo\nprintf '%s  %s\\n' '424e2c97d0b45fd7a6b608a87f090f35633f4c23ece5f092d48bba11aaf4bbfa' \"$(command -v cosign)\" | sha256sum -c -\n# HTTPS plus the approved TUF-authenticated target hash; no new root approval.\ncurl --fail --silent --show-error --proto '=https' --tlsv1.2 https://tuf-repo-cdn.sigstore.dev/targets/trusted_root.json -o trusted-root.json\nprintf '%s  %s\\n' '6494e21ea73fa7ee769f85f57d5a3e6a08725eae1e38c755fc3517c9e6bc0b66' trusted-root.json | sha256sum -c -\nsyft scan oci-archive:candidate/trustforge-dev.oci.tar -o spdx-json=workspace.sbom.spdx.json\npython3 -B workspaces/trustforge-dev/promote-native.py provenance > workspace.provenance.json\nauthdir=$(mktemp -d \"$RUNNER_TEMP/trustforge-native-auth.XXXXXX\")\ntrap 'rm -rf -- \"$authdir\"' EXIT\ntrap 'exit 130' INT\ntrap 'exit 143' TERM\nchmod 700 \"$authdir\"\nexport DOCKER_CONFIG=\"$authdir\"\nauthfile=\"$DOCKER_CONFIG/config.json\"\nprintf '{\"auths\":{}}\\n' > \"$authfile\"\nchmod 600 \"$authfile\"\nregistry_host=\"${TF_DESTINATION%%/*}\"\nprintf '%s' \"$REGISTRY_PASSWORD\" | skopeo login --authfile \"$authfile\" --username \"$REGISTRY_USERNAME\" --password-stdin \"$registry_host\"\nchmod 600 \"$authfile\"\nunset REGISTRY_PASSWORD REGISTRY_USERNAME\npython3 -B workspaces/trustforge-dev/promote-native.py fresh-namespace > namespace.json\nskopeo copy --preserve-digests --digestfile workspace.digest --authfile \"$authfile\" \\\n  oci-archive:candidate/trustforge-dev.oci.tar \"docker://$TF_DESTINATION:candidate-41344731623-13098563945\"\ntest \"$(cat workspace.digest)\" = 'sha256:fa4db36b277846092b2d4b65e3427cd7039e5397775e4f8742dc2924ab19dbb2'\nimage=\"$TF_DESTINATION@sha256:fa4db36b277846092b2d4b65e3427cd7039e5397775e4f8742dc2924ab19dbb2\"\nskopeo inspect --authfile \"$authfile\" --raw \"docker://$image\" > published.manifest.json\nprintf '%s  %s\\n' 'fa4db36b277846092b2d4b65e3427cd7039e5397775e4f8742dc2924ab19dbb2' published.manifest.json | sha256sum -c -\npython3 -B workspaces/trustforge-dev/promote-native.py pre-sign --cosign \"$(command -v cosign)\" --trusted-root \"$PWD/trusted-root.json\" > empty-inventory.json\npython3 -B workspaces/trustforge-dev/promote-native.py evidence --cosign \"$(command -v cosign)\" --trusted-root \"$PWD/trusted-root.json\" > verified.json\nprintf '%s\\n' 'Native promotion completed. External independent verification with the approved schema-4 policy remains required. No deployment authorized.' >> \"$GITHUB_STEP_SUMMARY\"\n"
+        },
+        {
+          "if": "always()",
+          "uses": "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+          "with": {
+            "name": "trustforge-dev-native-promotion-evidence",
+            "path": "validated.json\ncandidate/workspace.build.json\nworkspace.digest\npublished.manifest.json\nworkspace.sbom.spdx.json\nworkspace.provenance.json\nnamespace.json\nempty-inventory.json\nverified.json\ncandidate/*.bundle.json",
+            "if-no-files-found": "warn",
+            "retention-days": 30
+          }
+        }
+      ]
+    }
+  }
+}

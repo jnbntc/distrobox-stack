@@ -1,0 +1,19 @@
+{
+  "registry": "ghcr.io/project-zot/zot:v2.1.23",
+  "pinned_digest": "sha256:9d3de83ac2099e6f4843045b4c9b65b7e8baf40f92d28f54906dee9d4d390fd7",
+  "v2": "PASS",
+  "empty_referrers": {
+    "status": 200,
+    "content_type": "application/vnd.oci.image.index.v1+json",
+    "count": 0
+  },
+  "subject_and_artifactType": "PASS",
+  "referrer_hashes": "PASS",
+  "unfiltered_count": 3,
+  "pagination_pages": 1,
+  "skopeo_read": "PASS",
+  "real_candidate_used": false,
+  "cosign_tested": false,
+  "live_unknown_evidence": "DENY",
+  "pagination_observation": "n=1 returned all 3 on one page; no Link; multi-page NOT VERIFIED"
+}

@@ -1,0 +1,16 @@
+{
+  "schema_version": 4,
+  "approved": false,
+  "issuer": "https://token.actions.githubusercontent.com",
+  "identity": "https://github.com/jnbntc/distrobox-stack/.github/workflows/trustforge-native-promote.yml@refs/heads/main",
+  "repository": "jnbntc/distrobox-stack",
+  "workflow_ref": "refs/heads/main",
+  "trigger": "workflow_dispatch",
+  "source_commit": "89b4ca3b159914fc9e8cb60853907d57cfe9f406",
+  "signer_commit": null,
+  "trusted_root_sha256": "6494e21ea73fa7ee769f85f57d5a3e6a08725eae1e38c755fc3517c9e6bc0b66",
+  "destination": null,
+  "namespace_approval": null,
+  "registry_image": "ghcr.io/project-zot/zot@sha256:9d3de83ac2099e6f4843045b4c9b65b7e8baf40f92d28f54906dee9d4d390fd7",
+  "registry_version": "2.1.23"
+}
