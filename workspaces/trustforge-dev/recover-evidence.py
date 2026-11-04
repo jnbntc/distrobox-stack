@@ -2,6 +2,8 @@
 """Evidence-only recovery. Strict OCI 1.1 discovery; never push an image."""
 import argparse
 import base64
+from contextvars import ContextVar
+from functools import wraps
 import hashlib
 import json
 import os
@@ -20,7 +22,6 @@ p = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(p)
 b = p.bootstrap
 C = p.CANDIDATE
-require = b.require
 WORKFLOW = 'jnbntc/distrobox-stack/.github/workflows/trustforge-recover.yml@refs/heads/main'
 IDENTITY = 'https://github.com/' + WORKFLOW
 ROOT = '6494e21ea73fa7ee769f85f57d5a3e6a08725eae1e38c755fc3517c9e6bc0b66'
@@ -29,6 +30,106 @@ IMAGE = b.REPOSITORY + '@' + C['manifest_digest']
 TYPES = {'signature': b.IMAGE_SIGNATURE, 'spdx': b.SPDX, 'provenance': b.PROVENANCE}
 MEDIA = {'application/vnd.dev.sigstore.bundle.v0.3+json', 'application/vnd.dev.sigstore.bundle+json;version=0.3'}
 CONTRACT = b.strict_json((HERE/'contract.json').read_text())
+
+# Only fixed identifiers are emitted. Exception text, request URLs, headers and
+# response bodies must never reach diagnostics (including signed redirect URLs).
+PHASE = ContextVar('recovery_diagnostic_phase', default='startup')
+ERROR_CODES = {
+    'explicit approval required': 'POLICY_NOT_APPROVED',
+    'external approved policy hash required': 'POLICY_HASH_UNAPPROVED',
+    'exact recovery confirmation required': 'RECOVERY_CONFIRMATION_INVALID',
+    'registry authentication failed': 'REGISTRY_TOKEN_INVALID',
+    'oversized/invalid registry response': 'REGISTRY_RESPONSE_INVALID',
+    'untrusted blob redirect': 'BLOB_REDIRECT_UNTRUSTED',
+    'registry redirect limit': 'REGISTRY_REDIRECT_LIMIT',
+    'existing image digest mismatch': 'IMAGE_DIGEST_MISMATCH',
+    'image config mismatch': 'IMAGE_CONFIG_MISMATCH',
+    'image platform mismatch': 'IMAGE_PLATFORM_MISMATCH',
+    'legacy/fallback evidence requires separate review': 'LEGACY_EVIDENCE_PRESENT',
+    'incomplete paginated inventory': 'INVENTORY_PAGINATION_INCOMPLETE',
+    'unsupported referrers API': 'REFERRERS_SCHEMA_UNSUPPORTED',
+    'ambiguous evidence count': 'EVIDENCE_COUNT_AMBIGUOUS',
+    'duplicate referrer': 'REFERRER_DUPLICATE',
+    'invalid blob digest': 'BLOB_DIGEST_INVALID',
+    'blob digest/length mismatch': 'BLOB_INTEGRITY_MISMATCH',
+    'unsupported evidence format': 'EVIDENCE_FORMAT_UNSUPPORTED',
+    'unexpected referrer manifest': 'REFERRER_MANIFEST_INVALID',
+    'referrer subject mismatch': 'REFERRER_SUBJECT_MISMATCH',
+    'unsupported referrer config': 'REFERRER_CONFIG_UNSUPPORTED',
+    'ambiguous evidence layers': 'EVIDENCE_LAYERS_AMBIGUOUS',
+    'unsupported bundle': 'BUNDLE_UNSUPPORTED',
+    'unknown predicate; never interpret as missing': 'PREDICATE_UNKNOWN',
+    'duplicate evidence type': 'EVIDENCE_TYPE_DUPLICATE',
+    'existing evidence is not authenticated; no replacement allowed': 'EVIDENCE_UNAUTHENTICATED',
+    'concurrent evidence change': 'EVIDENCE_CHANGED_CONCURRENTLY',
+    'unexpected post-sign inventory': 'POST_SIGN_INVENTORY_CHANGED',
+    'incomplete or changed final evidence': 'FINAL_EVIDENCE_INCOMPLETE',
+    'missing evidence; not VERIFIED': 'EVIDENCE_MISSING',
+    'root mismatch': 'TRUSTED_ROOT_MISMATCH',
+    'unapproved Cosign': 'COSIGN_UNAPPROVED',
+    'invalid JSON': 'JSON_INVALID',
+}
+CAUGHT = (ValueError, OSError, KeyError, TypeError, IndexError, AttributeError, subprocess.SubprocessError)
+
+
+class DiagnosticError(b.VerificationError):
+    def __init__(self, code, error_type='VerificationError', http_status=None):
+        super().__init__(code)
+        self.phase = PHASE.get()
+        self.code = code
+        self.error_type = error_type
+        self.http_status = http_status
+
+
+def require(condition, reason):
+    if not condition:
+        raise DiagnosticError(ERROR_CODES.get(reason, 'CHECK_FAILED'))
+
+
+def diagnostic(phase, code):
+    def decorate(function):
+        @wraps(function)
+        def checked(*args, **kwargs):
+            token = PHASE.set(phase(*args, **kwargs) if callable(phase) else phase)
+            try:
+                return function(*args, **kwargs)
+            except DiagnosticError:
+                raise
+            except CAUGHT as error:
+                status = error.code if isinstance(error, urllib.error.HTTPError) else None
+                mapped = ERROR_CODES.get(str(error), code) if isinstance(error, b.VerificationError) else code
+                if isinstance(error, urllib.error.HTTPError):
+                    error.close()
+                raise DiagnosticError(mapped, type(error).__name__, status) from None
+            finally:
+                PHASE.reset(token)
+        return checked
+    return decorate
+
+
+def error_report(error):
+    wrapped = isinstance(error, DiagnosticError)
+    phase = error.phase if wrapped else PHASE.get()
+    code = error.code if wrapped else ('HTTP_ERROR' if isinstance(error, urllib.error.HTTPError) else 'INTERNAL_ERROR')
+    kind = error.error_type if wrapped else type(error).__name__
+    status = error.http_status if wrapped else (error.code if isinstance(error, urllib.error.HTTPError) else None)
+    if isinstance(error, urllib.error.HTTPError):
+        error.close()
+    report = {'verification': 'DENY',
+              'phase': phase if isinstance(phase, str) and re.fullmatch(r'[a-z][a-z0-9_.-]{0,79}', phase) else 'unknown',
+              'error_code': code if isinstance(code, str) and re.fullmatch(r'[A-Z][A-Z0-9_]{0,79}', code) else 'UNCLASSIFIED_ERROR',
+              'error_type': kind if isinstance(kind, str) and re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{0,79}', kind) else 'Error',
+              'deployment_authorized': False}
+    if type(status) is int and 100 <= status <= 599:
+        report['http_status'] = status
+    return report
+
+
+def request_phase(self, suffix, absent=False):
+    if suffix.startswith('referrers/'): return 'registry.referrers'
+    if absent: return 'registry.legacy'
+    if suffix.startswith('blobs/'): return 'registry.blob'
+    return 'registry.manifest'
 
 
 def policy_hash(policy):
@@ -39,6 +140,7 @@ def confirmation(policy):
     return p.confirmation().replace('PROMOTE ', 'RECOVER ', 1) + ' policy=sha256:' + policy_hash(policy)
 
 
+@diagnostic('policy.validation', 'POLICY_INVALID')
 def check_policy(policy):
     template = b.strict_json((HERE/'recovery-policy.example.json').read_text())
     require(set(policy) == set(template), 'unexpected policy fields')
@@ -49,6 +151,7 @@ def check_policy(policy):
     require(policy['trusted_root_sha256'] == ROOT, 'unapproved root')
 
 
+@diagnostic('workflow.context', 'WORKFLOW_CONTEXT_INVALID')
 def context(env):
     require(env.get('GITHUB_REPOSITORY') == C['repository'] and env.get('GITHUB_REF') == 'refs/heads/main', 'wrong recovery repository/ref')
     require(env.get('GITHUB_WORKFLOW_REF') == WORKFLOW and env.get('GITHUB_EVENT_NAME') == 'workflow_dispatch', 'wrong recovery workflow')
@@ -72,6 +175,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
 
 class Registry:
     """Bounded GET-only client. No write method, no insecure TLS or auth redirects."""
+    @diagnostic('registry.authentication', 'REGISTRY_AUTHENTICATION_FAILED')
     def __init__(self):
         config = b.strict_json((Path(os.environ['DOCKER_CONFIG'])/'config.json').read_text())
         auth = config['auths']['ghcr.io']['auth']
@@ -89,30 +193,44 @@ class Registry:
             try:
                 with opener.open(urllib.request.Request(url, headers=headers), timeout=90) as reply:
                     raw = reply.read(64*1024*1024+1)
-                    require(len(raw) <= 64*1024*1024 and reply.status == 200, 'oversized/invalid registry response')
+                    if not (len(raw) <= 64*1024*1024 and reply.status == 200):
+                        raise DiagnosticError('REGISTRY_RESPONSE_INVALID', http_status=reply.status)
                     return raw, reply.headers
             except urllib.error.HTTPError as error:
                 if blob and error.code in (301, 302, 307, 308):
-                    url = error.headers['Location']; parsed = urllib.parse.urlparse(url)
-                    require(parsed.scheme == 'https' and parsed.hostname and
-                            (parsed.hostname.endswith('.githubusercontent.com') or parsed.hostname.endswith('.blob.core.windows.net')), 'untrusted blob redirect')
+                    url = error.headers['Location']
+                    error.close()
+                    parsed = urllib.parse.urlparse(url)
+                    if not (parsed.scheme == 'https' and parsed.hostname and
+                            (parsed.hostname.endswith('.githubusercontent.com') or parsed.hostname.endswith('.blob.core.windows.net'))):
+                        raise DiagnosticError('BLOB_REDIRECT_UNTRUSTED', http_status=error.code)
                     headers.pop('Authorization', None)
                     continue
                 raise
-        raise b.VerificationError('registry redirect limit')
+        raise DiagnosticError('REGISTRY_REDIRECT_LIMIT')
 
+    @diagnostic(request_phase, 'REGISTRY_READ_FAILED')
     def get(self, suffix, absent=False):
         try:
             return self.http('https://ghcr.io/v2/jnbntc/trustforge-dev/'+suffix, 'Bearer '+self.token, suffix.startswith('blobs/'))
         except urllib.error.HTTPError as error:
             # Only an authenticated legacy-tag MANIFEST_UNKNOWN is absence.
-            if absent and error.code == 404:
-                obj = b.strict_json(error.read(4096).decode())
-                require(obj.get('errors') and all(e.get('code') == 'MANIFEST_UNKNOWN' for e in obj['errors']), 'ambiguous 404')
-                return None, {}
-            raise b.VerificationError('registry GET failed: '+str(error.code)) from None
+            try:
+                if absent and error.code == 404:
+                    try:
+                        obj = b.strict_json(error.read(4096).decode())
+                        allowed = obj.get('errors') and all(e.get('code') == 'MANIFEST_UNKNOWN' for e in obj['errors'])
+                    except CAUGHT as parse_error:
+                        raise DiagnosticError('REGISTRY_404_RESPONSE_INVALID', type(parse_error).__name__, 404) from None
+                    if not allowed:
+                        raise DiagnosticError('REGISTRY_404_AMBIGUOUS', http_status=404)
+                    return None, {}
+                raise DiagnosticError('REGISTRY_HTTP_ERROR', type(error).__name__, error.code) from None
+            finally:
+                error.close()
 
 
+@diagnostic('inventory.blob', 'BLOB_CHECK_FAILED')
 def blob(registry, descriptor, kind):
     value = descriptor['digest']
     require(re.fullmatch(r'sha256:[0-9a-f]{64}', value), 'invalid blob digest')
@@ -121,6 +239,7 @@ def blob(registry, descriptor, kind):
     return raw
 
 
+@diagnostic('inventory.discovery', 'INVENTORY_DISCOVERY_FAILED')
 def discover(registry):
     raw, _ = registry.get('manifests/'+C['manifest_digest'])
     require('sha256:'+hashlib.sha256(raw).hexdigest() == C['manifest_digest'], 'existing image digest mismatch')
@@ -160,6 +279,7 @@ def discover(registry):
     return result
 
 
+@diagnostic('inventory.crypto', 'CRYPTO_VERIFICATION_FAILED')
 def verify_bundle(binary, root, policy, bundle_path, role, runner=subprocess.run):
     for identity, sha in ((b.PROMOTION_IDENTITY, PREVIOUS), (IDENTITY, policy['signer_commit'])):
         command = [str(binary), 'verify-blob-attestation', '--bundle', str(bundle_path), '--type', TYPES[role],
@@ -174,6 +294,7 @@ def verify_bundle(binary, root, policy, bundle_path, role, runner=subprocess.run
     raise b.VerificationError('existing evidence is not authenticated; no replacement allowed')
 
 
+@diagnostic('inventory.claims', 'EVIDENCE_CLAIMS_INVALID')
 def claims(envelope, role, signer, policy):
     statement = b.verified_statements(json.dumps(envelope), IMAGE, TYPES[role])
     require(len(statement) == 1, 'ambiguous statement')
@@ -200,6 +321,7 @@ def claims(envelope, role, signer, policy):
             require(invocation['run_id'] not in (str(C['run_id']), '41380381655'), 'old run cannot be recovery')
 
 
+@diagnostic('inventory.authentication', 'INVENTORY_AUTHENTICATION_FAILED')
 def inventory(registry, binary, root, policy, directory, verifier=verify_bundle):
     result = {}
     for role, value, raw, envelope in discover(registry):
@@ -211,6 +333,7 @@ def inventory(registry, binary, root, policy, directory, verifier=verify_bundle)
     return result
 
 
+@diagnostic('recovery.state', 'RECOVERY_STATE_INVALID')
 def recover(scan, create):
     """Only a successful complete scan may classify a role as absent."""
     state = scan()
@@ -232,6 +355,7 @@ def main():
     parser.add_argument('--root', type=Path, default=Path('recovery-private/trusted-root.json'))
     parser.add_argument('--cosign', type=Path)
     args = parser.parse_args(); os.umask(0o077)
+    phase_token = PHASE.set('main.' + args.mode)
     try:
         if args.mode in ('confirmation','policy-hash'):
             policy = b.strict_json(args.policy.read_text()); check_policy(policy)
@@ -273,12 +397,14 @@ def main():
         require(set(result) == set(TYPES), 'missing evidence; not VERIFIED')
         report={'verification':'VERIFIED','image':IMAGE,'evidence':result,'source_commit':C['source_commit'],'signer_commit':policy['signer_commit'],'policy_sha256':policy_hash(policy),'trusted_root_sha256':ROOT,'deployment_authorized':False}
         (directory/'result.json').write_text(json.dumps(report,indent=2)+'\n');print(json.dumps(report))
-    except (ValueError, OSError, KeyError, TypeError, IndexError, AttributeError, subprocess.SubprocessError) as error:
-        report={'verification':'DENY','error_type':type(error).__name__,'deployment_authorized':False}
+    except CAUGHT as error:
+        report = error_report(error)
         if Path('recovery-evidence').is_dir():
             Path('recovery-evidence/result.json').write_text(json.dumps(report)+'\n')
         print(json.dumps(report),file=sys.stderr)
         return 1
+    finally:
+        PHASE.reset(phase_token)
     return 0
 
 
