@@ -23,7 +23,7 @@ Desktop apps → Flatpak
 ## Arquitectura
 
 - **Flatpak**: aplicaciones gráficas de escritorio, por ejemplo Darktable.
-- **Distrobox rootless**: sys-ops, iot-dev, android-ops, ia-dev, books-ops, gns3-client y re-ops.
+- **Distrobox rootless**: sys-ops, iot-dev, android-ops, ia-dev, gns3-client y re-ops.
 - **Distrobox rootful**: net-ops y sec-ops cuando el workflow necesita acceso privilegiado a red/dispositivos.
 - **GHCR**: publica las imágenes construidas por GitHub Actions.
 - **NVMe secundario**: Podman usa graphroot bajo `/var/mnt/storage`.
@@ -40,7 +40,6 @@ Propuesta optativa: [trustforge-dev](workspaces/trustforge-dev/README.md), defin
 | `iot-dev` | rootless + USB | PlatformIO y ESP-IDF nativo para ESP32-S3. |
 | `android-ops` | rootless + USB | ADB/Fastboot, inventario y mantenimiento de dispositivos Android. |
 | `ia-dev` | rootless + DRI | Python/uv, Aider e Intel OpenCL/Level Zero. |
-| `books-ops` | rootless + USB | Calibre, gestión/conversión de ebooks, Kindle por USB, Tor/torsocks y utilidades de descarga. |
 | `gns3-client` | rootless | Cliente GNS3 y Wireshark integrado al escritorio. |
 | `re-ops` | rootless + netns aislado | Ghidra headless y análisis estático/firmware. |
 | `net-ops` | rootful | Troubleshooting L2/L3, captura, SNMP, LLDP, Scapy, iperf y herramientas de red. |
@@ -411,7 +410,7 @@ normal o usar el CI.
 
 Workspace rootless dedicado a administración y diagnóstico de dispositivos Android por USB. Usa el paquete `android-tools` de Fedora, que aporta `adb` y `fastboot`, además de `usbutils` y `jq` para inventario y scripts de auditoría.
 
-El acceso USB sigue el mismo patrón que `iot-dev` y `books-ops`:
+El acceso USB sigue el mismo patrón que `iot-dev`:
 
 ```ini
 additional_flags="--device /dev/bus/usb:/dev/bus/usb:rwm --group-add keep-groups"
@@ -434,24 +433,11 @@ Para que ADB vea un teléfono real, la depuración USB debe estar habilitada y a
 
 El workspace se usa para auditoría y mantenimiento; no exporta `adb` ni `fastboot` al host.
 
-## books-ops
+## Calibre y Tor
 
-Calibre reemplaza el antiguo `media-ops`. Darktable queda como Flatpak en el host.
+Calibre y Tor se gestionan fuera del stack. Calibre usa el [instalador binario oficial](https://calibre-ebook.com/download_linux) en modo aislado, bajo `~/.local/opt/calibre`, con sus herramientas en `~/.local/bin`. La biblioteca y la configuración permanecen en el HOME del usuario.
 
-Incluye `usbutils` para diagnóstico USB y el Kindle se expone al contenedor mediante `/dev/bus/usb`.
-
-Tor no arranca automáticamente. El helper ignora el `/etc/tor/torrc` del paquete y usa un runtime de usuario propio, evitando sockets de control bajo `/run/tor`:
-
-```bash
-books-tor start
-books-tor status
-books-tor check
-books-tor logs
-torsocks curl https://example.org/
-books-tor stop
-```
-
-Los binarios `calibredb`, `ebook-convert` y `books-tor` se exportan al path por defecto de Distrobox (`$HOME/.local/bin`), y Calibre se exporta como aplicación gráfica.
+El workspace `books-ops` fue retirado. Su paquete de GHCR se conserva temporalmente para rollback.
 
 ## Uso
 
@@ -471,7 +457,7 @@ Recrear todo desde las imágenes actuales de GHCR:
 Recrear un único workspace:
 
 ```bash
-./scripts/stack.sh recreate books-ops
+./scripts/stack.sh recreate sys-ops
 ```
 
 El `Makefile` se conserva sólo como conveniencia si `make` ya está instalado.
@@ -479,7 +465,7 @@ El `Makefile` se conserva sólo como conveniencia si `make` ya está instalado.
 Build local para desarrollo:
 
 ```bash
-./scripts/stack.sh build books-ops
+./scripts/stack.sh build sys-ops
 ```
 
 > Las imágenes locales usan `localhost/custom/*`; el deploy normal consume `ghcr.io/jnbntc/*`.
